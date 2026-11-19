@@ -41,6 +41,8 @@
   --danger: #f0b2a9;
   --on-danger: #311c18;
   --field-border: #49534e;
+  --close-hover: #bdcac3;
+  --close-ink: var(--canvas);
 
   --sans: "Barlow", -apple-system, BlinkMacSystemFont, sans-serif;
   --mono: "Martian Mono", Menlo, Monaco, monospace;

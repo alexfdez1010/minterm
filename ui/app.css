@@ -122,8 +122,17 @@ i svg {
   color: var(--muted);
 }
 .tab-close i svg {
-  width: 11px;
-  height: 11px;
+  width: 14px;
+  height: 14px;
+  stroke-width: 2.25;
+}
+.tab-close:is(:hover, :focus-visible) {
+  background: var(--close-hover);
+  color: var(--close-ink);
+}
+.tab-close:active {
+  background: var(--fg);
+  color: var(--close-ink);
 }
 .tab:not(:hover):not(:focus-within):not(.active) .tab-close {
   opacity: 0;
