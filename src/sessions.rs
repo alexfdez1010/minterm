@@ -111,19 +111,14 @@ impl Sessions {
             return Err("The active working directory is unavailable.".into());
         }
         let prefs = crate::preferences::read();
-        let name = if agent == "codex-ollama" {
-            "codex"
-        } else {
-            agent
-        };
-        let cli = crate::agent_cli::resolve(name, prefs.executable(name))?;
-        let ollama = (agent == "codex-ollama")
+        let cli = crate::agent_cli::resolve(agent, prefs.executable(agent))?;
+        let ollama = (agent == "codex" && prefs.codex_ollama)
             .then_some((prefs.ollama_host.as_str(), prefs.ollama_model.as_str()));
         self.spawn(
             id,
             cwd,
             size(cols, rows),
-            interactive_agent(cli, cwd, prompt, ollama),
+            interactive_agent(agent, cli, cwd, prompt, ollama),
         )
     }
 
@@ -328,6 +323,7 @@ impl Drop for Sessions {
 }
 
 fn interactive_agent(
+    name: &str,
     cli: crate::agent_cli::AgentCli,
     cwd: &Path,
     prompt: &str,
@@ -355,8 +351,13 @@ fn interactive_agent(
         );
     }
     if !prompt.is_empty() {
-        cmd.arg("--");
-        cmd.arg(prompt);
+        if name == "opencode" {
+            // The CLI parses a separate "--help" value as a flag. Bind the
+            // option to its complete value so every initial prompt stays literal.
+            cmd.arg(format!("--prompt={prompt}"));
+        } else {
+            cmd.args(["--", prompt]);
+        }
     }
     cmd.cwd(cwd);
     if let Some(path) = cli.path {
@@ -873,7 +874,12 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
         let prompt = "--leading option $(touch surprise)\nand another line";
-        for oss in [None, Some(("http://localhost:1234", "chosen model"))] {
+        for (name, oss) in [
+            ("codex", None),
+            ("codex", Some(("http://localhost:1234", "chosen model"))),
+            ("claude", None),
+            ("opencode", None),
+        ] {
             let (tx, rx) = mpsc::channel();
             let mut sessions = Sessions::new(move |event| {
                 let _ = tx.send(event);
@@ -882,7 +888,7 @@ mod tests {
                 program: program.clone(),
                 path: None,
             };
-            let cmd = interactive_agent(cli, &work, prompt, oss);
+            let cmd = interactive_agent(name, cli, &work, prompt, oss);
             sessions.spawn(ID, &work, size(100, 20), cmd).unwrap();
             read_until(&sessions, &rx, "ready");
             assert_eq!(sessions.live_cwd(ID).unwrap(), work.canonicalize().unwrap());
@@ -895,7 +901,11 @@ mod tests {
                     "http://localhost:1234/v1"
                 );
             }
-            expected.extend_from_slice(b"--\0");
+            expected.extend_from_slice(if name == "opencode" {
+                b"--prompt="
+            } else {
+                b"--\0"
+            });
             expected.extend_from_slice(prompt.as_bytes());
             expected.push(0);
             assert_eq!(args, expected);

@@ -1,9 +1,6 @@
 use crate::{
-    agents, assistant,
-    assistant::AssistantProvider,
-    inspect,
+    agents, inspect,
     sessions::{SessionEvent, Sessions},
-    settings,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::Deserialize;
@@ -64,19 +61,8 @@ pub enum Action {
     Context {
         id: u32,
     },
-    Summarize {
-        id: u32,
-        provider: Option<AssistantProvider>,
-        excerpt: String,
-        revision: u32,
-    },
     Services,
     Agents,
-    Settings,
-    Ask {
-        provider: AssistantProvider,
-        question: String,
-    },
     Drag,
 }
 
@@ -84,17 +70,14 @@ pub enum Message {
     Preferences,
     Action(Action),
     Shell(SessionEvent),
-    Summary(u32, Value),
     Menu(String),
     Context(u32, Value),
     Services(Value),
     Agents(Value),
-    Answer(Value),
 }
 
 struct Companion {
     id: u32,
-    provider: AssistantProvider,
     live: bool,
 }
 
@@ -104,41 +87,30 @@ pub struct App {
     sessions: Sessions,
     // Each logical tab can own a shell and a second PTY running a live agent.
     companions: HashMap<u32, Companion>,
-    summaries: HashSet<u32>,
     start_dir: PathBuf,
-    vault_error: Option<String>,
     contexts: HashSet<u32>,
     last_dirs: HashMap<u32, PathBuf>,
     scanning_services: bool,
     scanning_agents: bool,
-    asking: bool,
     quitting: bool,
 }
 
 impl App {
-    pub fn new(
-        view: WebView,
-        proxy: EventLoopProxy<Message>,
-        start_dir: PathBuf,
-        vault_error: Option<String>,
-    ) -> Self {
+    pub fn new(view: WebView, proxy: EventLoopProxy<Message>, start_dir: PathBuf) -> Self {
         let output = proxy.clone();
         let sessions = Sessions::new(move |event| {
             let _ = output.send_event(Message::Shell(event));
         });
         Self {
             view,
-            summaries: HashSet::new(),
             proxy,
             sessions,
             companions: HashMap::new(),
             start_dir,
-            vault_error,
             contexts: HashSet::new(),
             last_dirs: HashMap::new(),
             scanning_services: false,
             scanning_agents: false,
-            asking: false,
             quitting: false,
         }
     }
@@ -165,8 +137,7 @@ impl App {
                 "ready",
                 json!({
                     "path":short_path(&self.start_dir),
-                    "preferences":ui_preferences(),
-                    "vaultError":self.vault_error
+                    "preferences":ui_preferences()
                 }),
             ),
             Action::Open {
@@ -199,19 +170,9 @@ impl App {
                     });
                 match result {
                     Ok(cwd) => {
-                        let provider = match agent.as_str() {
-                            "claude" => AssistantProvider::Anthropic,
-                            "codex-ollama" => AssistantProvider::Ollama,
-                            _ => AssistantProvider::OpenAi,
-                        };
-                        if let Some(old) = self.companions.insert(
-                            from,
-                            Companion {
-                                id,
-                                provider,
-                                live: true,
-                            },
-                        ) {
+                        if let Some(old) =
+                            self.companions.insert(from, Companion { id, live: true })
+                        {
                             self.last_dirs.remove(&old.id);
                         }
                         self.emit("opened", json!({"id":id,"path":short_path(&cwd)}));
@@ -230,39 +191,6 @@ impl App {
                 let _ = self.sessions.resize(id, cols, rows);
             }
             Action::Ack { id } => self.sessions.ack_output(id),
-            Action::Summarize {
-                id,
-                provider,
-                excerpt,
-                revision,
-            } => {
-                if !self.last_dirs.contains_key(&id) {
-                    return;
-                }
-                let source = match (
-                    self.companions
-                        .values()
-                        .find(|child| child.id == id)
-                        .map(|child| child.provider),
-                    provider,
-                ) {
-                    (Some(provider), None) => assistant::SummarySource::Managed(provider),
-                    (None, Some(provider)) => assistant::SummarySource::Reviewed(provider),
-                    _ => return,
-                };
-                if !self.summaries.insert(id) {
-                    self.emit("summary", json!({"id":id,"revision":revision,"error":"Another summary is in progress."}));
-                    return;
-                }
-                self.worker(move || {
-                    let value = match assistant::summarize(source, &excerpt) {
-                        Ok(Some(text)) => json!({"id":id,"revision":revision,"text":text}),
-                        Ok(None) => json!({"id":id,"revision":revision,"skipped":true}),
-                        Err(error) => json!({"id":id,"revision":revision,"error":error}),
-                    };
-                    Message::Summary(id, value)
-                });
-            }
             Action::Close { id, force } => {
                 if !force
                     && (self.companions.get(&id).is_some_and(|child| child.live)
@@ -318,17 +246,7 @@ impl App {
                 let shells = self.sessions.shell_pids();
                 self.worker(move || Message::Agents(json!(agents::discover(&shells))));
             }
-            Action::Ask { provider, question } if !self.asking => {
-                self.asking = true;
-                self.worker(move || {
-                    Message::Answer(match assistant::ask(provider, &question) {
-                        Ok(text) => json!({"text":text}),
-                        Err(error) => json!({"error":error}),
-                    })
-                });
-            }
-            Action::Settings => settings::show(),
-            Action::Drag | Action::Services | Action::Agents | Action::Ask { .. } => {}
+            Action::Drag | Action::Services | Action::Agents => {}
         }
     }
 
@@ -362,12 +280,6 @@ impl App {
         match message {
             Message::Action(action) => self.act(action),
             Message::Preferences => self.emit("preferences", ui_preferences()),
-            Message::Summary(id, value) => {
-                self.summaries.remove(&id);
-                if self.last_dirs.contains_key(&id) {
-                    self.emit("summary", value);
-                }
-            }
             Message::Shell(SessionEvent::Output { id, data }) => {
                 self.emit("output", json!({"id":id,"data":data}))
             }
@@ -394,10 +306,6 @@ impl App {
             Message::Agents(value) => {
                 self.scanning_agents = false;
                 self.emit("agents", value);
-            }
-            Message::Answer(value) => {
-                self.asking = false;
-                self.emit("answer", value);
             }
         }
     }

@@ -1,4 +1,4 @@
-// AppKit adapter for the General pane in this test process.
+// AppKit adapter for the Settings window in this test process.
 static NSView *qa_setting(NSView *view, NSString *label) {
     if ([view.accessibilityLabel isEqual:label]) return view;
     for (NSView *child in view.subviews) {
@@ -52,14 +52,19 @@ static void qa_preferences(NSDictionary *request, void (^reply)(id, NSString *))
         reply(@YES, nil);
         return;
     }
-    if ([panes.selectedTabViewItem.identifier isEqual:@"Ollama"]) {
+    if ([panes.selectedTabViewItem.identifier isEqual:@"Codex"]) {
         NSComboBox *model = (NSComboBox *)qa_setting(window.contentView, @"Ollama model");
-        if (!model) { reply(nil, @"Missing Ollama model picker"); return; }
+        NSPopUpButton *backend = (NSPopUpButton *)qa_setting(window.contentView, @"Codex backend");
+        if (!model || !backend) { reply(nil, @"Missing Codex backend controls"); return; }
         if ([action isEqual:@"state"]) {
-            reply(@{@"model": model.stringValue, @"models": model.objectValues}, nil);
+            reply(@{@"model": model.stringValue, @"models": model.objectValues,
+                    @"backend": backend.titleOfSelectedItem, @"enabled": @(model.enabled)}, nil);
             return;
         }
-        if ([action isEqual:@"refresh"]) {
+        if ([action isEqual:@"backend"]) {
+            [backend selectItemWithTitle:request[@"value"]];
+            [backend sendAction:backend.action to:backend.target];
+        } else if ([action isEqual:@"refresh"]) {
             NSButton *refresh = (NSButton *)qa_setting(window.contentView, @"Refresh");
             if (!refresh) { reply(nil, @"Missing Refresh button"); return; }
             [refresh performClick:nil];
@@ -83,7 +88,8 @@ static void qa_preferences(NSDictionary *request, void (^reply)(id, NSString *))
     }
     if ([action isEqual:@"state"]) {
         reply(@{@"mode": mode.titleOfSelectedItem, @"agent": agent.titleOfSelectedItem,
-                @"shortcut": shortcut.title}, nil);
+                @"shortcut": shortcut.title, @"agents": agent.itemTitles,
+                @"panes": [panes.tabViewItems valueForKey:@"label"]}, nil);
         return;
     }
     if ([action isEqual:@"mode"] || [action isEqual:@"agent"]) {

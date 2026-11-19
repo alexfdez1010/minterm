@@ -15,7 +15,8 @@ pub(crate) fn resolve(agent: &str, configured: Option<&Path>) -> Result<AgentCli
     let name = match agent {
         "codex" => "Codex",
         "claude" => "Claude Code",
-        _ => return Err("Choose Codex or Claude Code.".into()),
+        "opencode" => "OpenCode",
+        _ => return Err("Choose Codex, Claude Code, or OpenCode.".into()),
     };
     let mut dirs = binary_paths();
     let executable = |file: &Path| {
@@ -51,6 +52,7 @@ fn binary_paths() -> Vec<PathBuf> {
         for suffix in [
             ".local/bin",
             ".claude/local",
+            ".opencode/bin",
             ".codex/packages/standalone/current/bin",
             ".volta/bin",
             ".bun/bin",

@@ -2,10 +2,7 @@ mod agent_cli;
 mod agents;
 mod app;
 mod assets;
-mod assistant;
-mod credentials;
 mod inspect;
-pub mod key_command;
 mod menu;
 mod preferences;
 mod prompt;
@@ -30,7 +27,6 @@ pub fn launch(
     visible: bool,
     on_ready: impl FnOnce(&tao::window::Window, &wry::WebView),
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let vault_error = credentials::rotate_on_launch().err();
     let mut event_loop = EventLoopBuilder::<Message>::with_user_event().build();
     if !visible {
         event_loop.set_activation_policy(ActivationPolicy::Prohibited);
@@ -73,7 +69,7 @@ pub fn launch(
         })
         .build(&window)?;
     on_ready(&window, &view);
-    let mut app = App::new(view, proxy, start_dir, vault_error);
+    let mut app = App::new(view, proxy, start_dir);
     event_loop.run(move |event, _, control| {
         let _keep_menu = &menu;
         *control = ControlFlow::Wait;

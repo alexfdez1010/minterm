@@ -26,9 +26,6 @@
 .agent-copy {
   flex: 1;
 }
-.agent-row:has(.agent-summarize:not([hidden])) strong {
-  margin-right: 25px;
-}
 .agent-copy strong,
 .agent-copy .agent-detail {
   overflow: hidden;
@@ -58,27 +55,6 @@
 }
 .agent-link .agent-status[data-state="failed"] {
   color: var(--danger);
-}
-.agent-link .agent-summary-text {
-  white-space: normal;
-  overflow-wrap: anywhere;
-  line-height: 1.4;
-}
-.agent-summarize {
-  position: absolute;
-  top: 2px;
-  right: 24px;
-  width: 25px;
-  height: 25px;
-}
-.agent-summarize[aria-disabled="true"] {
-  opacity: 0.5;
-  cursor: default;
-}
-@media (hover: hover) {
-  .agent-row:not(:hover):not(:focus-within) .agent-summarize {
-    opacity: 0;
-  }
 }
 .agent-dialog {
   width: min(418px, calc(100vw - 40px));
@@ -142,10 +118,6 @@
 .agent-options input:focus-visible + span {
   outline: 2px solid var(--mint);
   outline-offset: 1px;
-}
-.agent-dialog .hint {
-  margin: var(--space-1) 0 0;
-  line-height: 1.5;
 }
 .agent-dialog .primary {
   display: inline-flex;

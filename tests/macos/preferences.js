@@ -16,36 +16,35 @@ async function verifyPreferences() {
     if (!await key(43, ',', command)) throw new Error('Settings menu shortcut was unavailable');
   };
   const recordKey = (code, letter, modifiers) => settings('key', {code, letter, modifiers});
-  const defaults = {mode: 'Terminal', agent: 'Codex', shortcut: '⇧⌘K'};
+  const defaults = {mode: 'Terminal', agent: 'Codex', shortcut: '⌘K'};
   const option = 1 << 19;
   await settings('prepare');
   await open();
-  await state(defaults);
-  await settings('agent', {value: 'Codex with Ollama'});
+  await state({...defaults, agents: ['Codex', 'Claude Code', 'OpenCode'], panes: ['General', 'Codex']});
+  await settings('agent', {value: 'OpenCode'});
   await settings('mode', {value: 'Agent'});
   await settings('record');
   await state({shortcut: 'Press ⌘ and a letter'});
   await recordKey(17, 't', command);
   await state({shortcut: 'Shortcut in use. Try another.'});
   await recordKey(16, 'y', command | option);
-  const changed = {mode: 'Agent', agent: 'Codex with Ollama', shortcut: '⌥⌘Y'};
+  const changed = {mode: 'Agent', agent: 'OpenCode', shortcut: '⌥⌘Y'};
   await state(changed);
   await settings('close');
   await expect('New tab and mode toggle reflect saved settings', () =>
     $('#new-tab').getAttribute('aria-label') === 'New agent tab' && $('#command-toggle').title.includes('⌥⌘Y'));
   $('#start-agent').click();
-  await expect('Inspector launcher follows the Ollama preference', () =>
-    $('#agent-launch').open && $('#agent-launch-form').elements.agent.value === 'codex-ollama');
+  await expect('Inspector launcher follows the OpenCode preference', () =>
+    $('#agent-launch').open && $('#agent-launch-form').elements.agent.value === 'opencode');
   $('#agent-launch').close();
   await open();
   await state(changed); // show() reloads values from the Rust preferences store.
-  await settings('agent', {value: 'Codex'}); // use the offline test CLI for the next tab.
   await settings('close');
   const before = tabs().length;
   await key(17, 't', command);
   const page = () => $('.terminal-page.selected');
   await expect('Command-T honors the default agent tab preference', () =>
-    tabs().length === before + 1 && selected().textContent.includes('Codex') &&
+    tabs().length === before + 1 && selected().textContent.includes('OpenCode') &&
     page()?.dataset.kind === 'agent' && page().dataset.state === 'live');
   await key(16, 'y', command | option);
   await expect('The recorded shortcut switches to the shell', () => page()?.dataset.kind === 'shell');
@@ -56,12 +55,15 @@ async function verifyPreferences() {
   await key(13, 'w', command);
   await expect('Settings test tab closed', () => tabs().length === before);
   await open();
-  await state({...changed, agent: 'Codex'});
+  await state(changed);
+  await settings('agent', {value: 'Codex'});
   await settings('mode', {value: 'Terminal'});
   await settings('record');
-  await recordKey(40, 'K', command | shift);
+  await recordKey(40, 'k', command);
   await state(defaults);
-  await settings('pane', {value: 'Ollama'});
+  await settings('pane', {value: 'Codex'});
+  await state({backend: 'Codex default', enabled: false});
+  await settings('backend', {value: 'Ollama'});
   const models = ['fixture-coder:1b', 'fixture-reasoner:2b'];
   await state({models: models.slice(0, 1)});
   await settings('refresh');
@@ -69,10 +71,12 @@ async function verifyPreferences() {
   await settings('selectModel', {index: 1});
   await settings('close');
   await open();
-  await state({model: models[1]});
+  await state({backend: 'Ollama', enabled: true, model: models[1]});
+  await settings('backend', {value: 'Codex default'});
+  await state({enabled: false, model: models[1]});
   await settings('pane', {value: 'General'});
   await state(defaults);
   await settings('close');
   await expect('Original tab defaults and menu shortcut restored', () =>
-    $('#new-tab').getAttribute('aria-label') === 'New terminal tab' && $('#command-toggle').title.includes('⇧⌘K'));
+    $('#new-tab').getAttribute('aria-label') === 'New terminal tab' && $('#command-toggle').title.includes('(⌘K)'));
 }

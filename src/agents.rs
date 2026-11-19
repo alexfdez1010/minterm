@@ -234,7 +234,10 @@ pub fn discover(shells: &[(u32, i32)]) -> Vec<Agent> {
         };
         let mut members = HashMap::new();
         for (pid, info) in members_of(shell, root.e_tdev) {
-            let name = process_agent(pid, &mut scratch);
+            // Other CLIs still count as running jobs if they replace the login shell.
+            // Only the three agents supported by Minterm appear in the inspector.
+            let name = process_agent(pid, &mut scratch)
+                .filter(|name| matches!(*name, "Codex" | "Claude Code" | "OpenCode"));
             // Check PID identity again after inspecting an apparent agent's executable.
             if name.is_some()
                 && !bsd_info(pid).is_some_and(|current| {
@@ -367,6 +370,47 @@ mod tests {
         assert!(outermost(5, "Codex", &members));
         assert!(!outermost(7, "Codex", &members));
         assert!(outermost(8, "Aider", &members));
+    }
+
+    #[test]
+    fn replacing_the_shell_with_an_unlisted_agent_still_protects_the_tab() {
+        use portable_pty::{CommandBuilder, PtySize, native_pty_system};
+        use std::{
+            thread,
+            time::{Duration, Instant},
+        };
+
+        let tmp = tempfile::tempdir().unwrap();
+        let fixture = compile_agent_fixture(tmp.path());
+        for (name, listed) in [("aider", None), ("opencode", Some("OpenCode"))] {
+            let program = tmp.path().join(name);
+            std::fs::copy(&fixture, &program).unwrap();
+            let ready = tmp.path().join(format!("{name}-ready"));
+            // An exec'd CLI keeps the shell PID and has no distinct child job.
+            let pty = native_pty_system().openpty(PtySize::default()).unwrap();
+            let mut cmd = CommandBuilder::new(program);
+            cmd.arg(&ready);
+            let mut child = pty.slave.spawn_command(cmd).unwrap();
+            drop(pty.slave);
+            let pid = child.process_id().unwrap() as i32;
+            let deadline = Instant::now() + Duration::from_secs(3);
+            while !ready.exists() && Instant::now() < deadline {
+                thread::sleep(Duration::from_millis(10));
+            }
+            let rows = discover(&[(1, pid)]);
+            let busy = has_jobs(pid);
+            drop(pty.master);
+            let _ = child.kill();
+            let _ = child.wait();
+            assert!(
+                ready.is_file() && busy,
+                "{name} must be protected when closing"
+            );
+            assert_eq!(
+                rows.iter().map(|row| row.name.as_str()).collect::<Vec<_>>(),
+                listed.into_iter().collect::<Vec<_>>()
+            );
+        }
     }
 
     #[test]

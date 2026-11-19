@@ -8,13 +8,9 @@ fn directory() -> Result<Option<PathBuf>, String> {
         .skip(1)
         .filter(|a| !a.to_string_lossy().starts_with("-psn_"));
     let first = args.next();
-    if first.as_deref() == Some(std::ffi::OsStr::new("key")) {
-        minterm::key_command::run(&args.collect::<Vec<_>>())?;
-        return Ok(None);
-    }
     if first.as_deref() == Some(std::ffi::OsStr::new("--help")) {
         println!(
-            "Minterm\n\nUsage: minterm [DIRECTORY]\n       minterm key set|remove openai|anthropic\n\nOpen a terminal in the given directory. Manage provider keys from the prompt or the Settings window."
+            "Minterm\n\nUsage: minterm [DIRECTORY]\n\nOpen a terminal in the given directory."
         );
         return Ok(None);
     }

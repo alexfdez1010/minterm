@@ -8,9 +8,6 @@ repository = "https://github.com/alexfdez1010/minterm"
 
 [dependencies]
 base64 = "0.22"
-chacha20poly1305 = "0.10"
-curl = { version = "0.4", default-features = false, features = ["force-system-lib-on-osx"] }
-getrandom = "0.3"
 libc = "0.2"
 muda = { version = "0.20", default-features = false }
 portable-pty = "0.9"

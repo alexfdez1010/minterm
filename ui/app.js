@@ -2,7 +2,6 @@ import { $, agentNames, element, icon, send } from "./shared.js";
 import { initInspector, refreshInspector, receiveServices, receiveAgents } from "./inspector.js";
 import { Activity } from "./activity.js";
 import { theme, terminalFont, defaultFontSize } from "./theme.js";
-import { initAssistant, receiveAnswer, updateContextAction } from "./assistant.js";
 import { CommandMode } from "./command.js";
 
 const tabs = new Map();
@@ -50,7 +49,7 @@ function updateTab(tab) {
   const session = visibleSession(tab);
   if (tab.iconKind !== session.kind) {
     tab.button.firstElementChild.replaceWith(
-      icon(session.kind === "agent" ? "agents" : "terminal"),
+      icon(session.kind === "agent" ? "robot" : "terminal"),
     );
     tab.iconKind = session.kind;
   }
@@ -107,7 +106,6 @@ function selectTab(id) {
   tab.row.scrollIntoView({ block: "nearest", inline: "nearest" });
   commandMode.sync();
   focusSession();
-  updateContextAction(current());
   fitActive();
   requestContext();
 }
@@ -167,9 +165,6 @@ function createSession(id, tabId, kind, source) {
     pending: [],
   };
   sessions.set(id, session);
-  term.onSelectionChange(() => {
-    if (current() === session && panel === "assist") updateContextAction(session);
-  });
   term.onData((data) => {
     // Cursor reports and arrow navigation do not answer an approval prompt.
     if (/[\r\n\x03\x04]/.test(data) || /^(?:y|n|\x1b)$/i.test(data)) activity.input(id);
@@ -282,14 +277,9 @@ function setPanel(next, toggle = true) {
   panel = toggle && next === panel ? null : next;
   $("sidebar").hidden = !panel;
   $("inspect-panel").hidden = panel !== "inspector";
-  $("assist-panel").hidden = panel !== "assist";
   $("inspector-toggle").setAttribute("aria-pressed", String(panel === "inspector"));
-  $("assist-toggle").setAttribute("aria-pressed", String(panel === "assist"));
   if (panel === "inspector") refreshInspector();
-  if (panel === "assist") {
-    updateContextAction(current());
-    $("question").focus();
-  } else focusSession();
+  focusSession();
   fitActive();
 }
 function showConfirmation({ id }) {
@@ -329,7 +319,6 @@ function command(name) {
       send("quit");
       break;
     case "inspector":
-    case "assist":
       setPanel(name);
       break;
     case "agents":
@@ -374,7 +363,6 @@ window.minterm = {
         commandMode.preferences(data.preferences);
         newTab();
         setPanel(panel, false);
-        if (data.vaultError) notice(data.vaultError);
         break;
       case "opened":
         if (session) {
@@ -442,9 +430,6 @@ window.minterm = {
       case "agents":
         activity.scan(data);
         break;
-      case "summary":
-        activity.receiveSummary(data);
-        break;
       case "notice":
         notice(data);
         break;
@@ -456,9 +441,6 @@ window.minterm = {
         break;
       case "confirm":
         showConfirmation(data);
-        break;
-      case "answer":
-        receiveAnswer(data);
         break;
     }
   },
@@ -498,7 +480,6 @@ $("restart").onclick = () => {
 };
 $("inspector-toggle").onclick = () => setPanel("inspector");
 $("command-toggle").onclick = () => command("commandMode");
-$("assist-toggle").onclick = () => setPanel("assist");
 $("cancel").onclick = () => $("confirm").close();
 $("confirm").onclose = () => focusSession();
 $("confirm-close").onclick = () => {
@@ -523,25 +504,8 @@ initInspector(
     if (window.innerWidth <= 770) setPanel(null, false);
     newTab(task);
   },
-  (id) => activity.preview(id),
-  (input) => activity.summarize(input),
   () => commandMode.agent,
 );
-initAssistant(current, notice, (id, task) => {
-  const session = sessions.get(id);
-  let tab = tabs.get(session?.tabId);
-  if (!tab) {
-    notice("The terminal tab for this answer has closed.");
-    return;
-  }
-  if (window.innerWidth <= 770 && panel) setPanel(null, false);
-  // Preserve a running TUI and any unfinished draft when preparing a new task.
-  if (tab.draft || (tab.companion && ["opening", "live"].includes(tab.companion.state))) {
-    tab = newTab(undefined, id, "terminal");
-  }
-  tab.draft = task;
-  setMode(tab, "compose");
-});
 $("titlebar").addEventListener("mousedown", (e) => {
   if (e.button === 0 && !e.target.closest("button, summary, .tab")) send("drag");
 });
@@ -573,9 +537,6 @@ document.addEventListener(
     } else if (e.ctrlKey && e.key === "Tab") {
       e.preventDefault();
       changeTab(e.shiftKey ? -1 : 1);
-    } else if (e.metaKey && e.key === "Enter" && e.target === $("question")) {
-      e.preventDefault();
-      $("question-form").requestSubmit();
     } else if (e.key === "Escape" && e.target.closest("#sidebar")) {
       e.preventDefault();
       setPanel(null, false);

@@ -41,8 +41,9 @@ try {
     $('.terminal-page.selected')?.dataset.state === 'live' && selected().title.includes('main') && selected().title.includes('/workspace'));
   await expect('Terminal directly below the tabs', () => !$('.workspace .context') &&
     $('.workspace').firstElementChild === $('#terminals'));
-  await expect('Only Agents initially expanded', () => $('#agent-section').open &&
-    !$('#port-section').open && !$('#db-section'));
+  await expect('Inspector starts with Agents expanded and Ports collapsed', () =>
+    document.querySelectorAll('#inspect-panel details').length === 2 &&
+    $('#agent-section').open && !$('#port-section').open);
   const terminal = activeTerminal();
   const hasPrompt = (folder, branch) => rows(terminal).some(line =>
     line.includes(folder) && line.includes(branch) && line.includes('❯'));
@@ -57,6 +58,8 @@ try {
     rows(terminal).some(line => line.includes('<ready>')));
   await expect('Prompt follows cd into another repository', () => hasPrompt('nested', 'agent/review'));
   await enter('../bin/codex');
+  await expect('Manual CLI is ready before its tab goes into the background', () =>
+    rows(terminal).some(line => line.includes('Do you want to proceed? [y/n]')));
   for (let count = 2; count <= 9; count++) {
     await key(17, 't', command);
     await expect('One new live tab per Command-T', () => tabs().length === count &&
@@ -64,11 +67,11 @@ try {
   }
   await expect('New tab inherits the nested directory', () =>
     selected().title.includes('/workspace/nested') && selected().title.includes('agent/review'));
-  await key(38, 'j', command);
-  await expect('Assistant accepts keyboard input', () => document.activeElement === $('#question'));
+  await key(40, 'k', command);
+  await expect('Agent draft accepts keyboard input', () => document.activeElement === $('#command-input'));
 
   // Hold Git replies during selection. Number shortcuts must focus the requested
-  // terminal immediately, including when the current focus is in Assistant.
+  // terminal immediately, including when focus starts in an unsent agent draft.
   const digits = [18, 19, 20, 21, 23, 22, 26, 28, 25]; // macOS physical key codes for 1 through 9
   const targets = tabs(), receive = window.minterm.receive;
   const delayed = [];
@@ -81,8 +84,10 @@ try {
       await key(code, String(index + 1), command);
       await expect('Command-' + (index + 1) + ' selects and focuses its terminal', () =>
         selected() === targets[index] &&
-        document.activeElement === $('.terminal-page.selected textarea.xterm-helper-textarea'));
+        document.activeElement === (index === 8 ? $('#command-input') : $('.terminal-page.selected textarea.xterm-helper-textarea')));
     }
+    await key(53, '\x1b');
+    await expect('Escape restores the ninth shell', () => document.activeElement === $('.terminal-page.selected textarea.xterm-helper-textarea'));
   } finally {
     window.minterm.receive = receive;
     for (const context of delayed) receive('context', context);
@@ -105,13 +110,6 @@ try {
     $('#agents button strong')?.textContent === 'Codex');
   await expect('Manual agent is asking for input', () =>
     $('#agents .agent-status[data-state="inputRequested"]') !== null);
-  $('#agents .agent-summarize').click();
-  await expect('Manual summary previews the terminal excerpt', () => $('#agent-summary').open &&
-    $('#agent-excerpt').value.includes('Do you want to proceed?'));
-  $('#agent-excerpt').value = 'The fixture is waiting for an answer.';
-  $('#excerpt-submit').click();
-  await expect('Manual summary explains missing key', () =>
-    $('#agents .agent-summary-text.error')?.textContent.includes('OPEN_API_KEY'));
   $('#agents .agent-link').click();
   await expect('Agent row opens its terminal', () => selected() === first);
   const ports = $('#port-section'), initial = ports.open;
@@ -137,15 +135,10 @@ try {
   await expect('Idle shell selected for launch', () => selected() === tabs()[7]);
   const sourceTab = selected(), beforeLaunch = tabs().length;
   const surface = () => $('.terminal-page.selected');
-  const summaries = new Map(), receiveWithSummary = window.minterm.receive;
-  window.minterm.receive = (name, data) => {
-    if (name === 'summary') summaries.set(data.id, data);
-    receiveWithSummary(name, data);
-  };
   $('#start-agent').click();
   await expect('Agent launcher opened', () => $('#agent-launch').open);
-  await expect('Launch has no summary opt-in or provider selector', () =>
-    !$('#agent-launch input[type="checkbox"]') && !$('#agent-launch select'));
+  await expect('Launcher lists the three supported CLIs', () =>
+    [...$('#agent-launch-form').elements.agent].map(input => input.value).sort().join(',') === 'claude,codex,opencode');
   const task = $('#agent-prompt');
   task.value = 'Review fixture changes\nDescribe `git status` literally.';
   task.dispatchEvent(new Event('input', {bubbles:true}));
@@ -156,9 +149,7 @@ try {
   const launchedTab = selected(), launched = activeTerminal();
   const launchedRow = () => [...document.querySelectorAll('#agents li')]
     .find(row => row.textContent.includes('Review fixture changes'));
-  const codexId = Number(surface().id.slice('term-'.length));
-  await expect('Codex silently skips summaries without its own key', () =>
-    summaries.get(codexId)?.skipped === true && launchedRow()?.querySelector('.agent-summary-text')?.hidden &&
+  await expect('Inspector shows local activity from the CLI', () =>
     launchedRow()?.textContent.includes('Running a command') &&
     launchedRow()?.querySelector('.agent-status')?.dataset.state === 'running');
   await key(28, '8', command);
@@ -176,18 +167,51 @@ try {
     tabs().length === beforeLaunch && selected() === sourceTab &&
     document.activeElement === $('.terminal-page.selected textarea.xterm-helper-textarea'));
   const sourceTerminal = activeTerminal();
-  await enter('cd "$HOME/command-target"');
+  await enter('cd "$HOME/command-target" && printf "%s\\n" one two three four');
   await expect('Source shell changed into a different repository', () =>
     rows(sourceTerminal).some(line => line.includes('command/fixture') && line.includes('❯')));
-  await key(40, 'K', command | shift);
-  await expect('Command-Shift-K activates the composer with the default agent', () =>
+  // Leave a shell command partially typed to distinguish its first cell from its
+  // cursor. The robot must replace the actual chevron after the previous output.
+  await type('echo retained');
+  await expect('The shell has the unfinished command', () =>
+    rows(sourceTerminal).some(line => line.includes('❯ echo retained')));
+  const originalRows = sourceTerminal.rows, originalCols = sourceTerminal.cols;
+  const screen = sourceTerminal.element.querySelector('.xterm-screen').getBoundingClientRect();
+  const cellHeight = screen.height / originalRows, cellWidth = screen.width / originalCols;
+  function promptPosition() {
+    const buffer = sourceTerminal.buffer.active;
+    const row = buffer.baseY + buffer.cursorY;
+    const line = buffer.getLine(row);
+    let marker = buffer.cursorX;
+    while (marker > 0 && line.getCell(marker)?.getChars() !== '❯') marker--;
+    if (line.getCell(marker)?.getChars() !== '❯') throw new Error('Missing prompt marker on the editable line');
+    return {left: screen.left + marker * cellWidth, top: screen.top + (row - buffer.viewportY) * cellHeight};
+  }
+  function editorAtPrompt(position) {
+    const marker = $('#command-marker').getBoundingClientRect();
+    const input = $('#command-input').getBoundingClientRect();
+    return Math.abs(marker.left - position.left) < cellWidth / 2 &&
+      Math.abs(marker.top - position.top) < cellHeight / 2 &&
+      Math.abs(input.left - (position.left + 2 * cellWidth)) < cellWidth / 2 &&
+      Math.abs(input.top - position.top) < cellHeight / 2;
+  }
+  const firstPrompt = promptPosition();
+  await key(40, 'k', command);
+  await expect('Command-K focuses a blank input marked only by a robot', () =>
     $('#command-toggle').getAttribute('aria-pressed') === 'true' &&
-    $('#command-agent').textContent.includes('Codex') && document.activeElement === $('#command-input'));
+    $('#command-marker svg') && !$('#command-input').placeholder && document.activeElement === $('#command-input'));
+  await expect('Robot replaces the shell chevron and input starts at the command', () => editorAtPrompt(firstPrompt));
   const modeTask = 'touch shell-must-not-run';
   await type(modeTask);
   await key(53, '\x1b');
   await expect('Escape returns keyboard input to the terminal', () =>
     $('#command-form').hidden && document.activeElement === $('.terminal-page.selected textarea.xterm-helper-textarea'));
+  await key(36, '\r');
+  await expect('Returning to the shell preserves its unfinished command', () =>
+    rows(sourceTerminal).some(line => line === 'retained') &&
+    sourceTerminal.buffer.active.getLine(sourceTerminal.buffer.active.baseY + sourceTerminal.buffer.active.cursorY)?.translateToString(true).includes('❯'));
+  const secondPrompt = promptPosition();
+  if (secondPrompt.top <= firstPrompt.top + cellHeight) throw new Error('Expected a different input row');
   await key(26, '7', command);
   $('#command-toggle').click();
   await expect('A different tab has its own command draft', () =>
@@ -196,10 +220,14 @@ try {
   await key(28, '8', command);
   $('#command-toggle').click();
   await expect('The source tab restores its command draft', () => $('#command-input').value === modeTask);
+  await expect('The restored draft follows the new cursor position', () => editorAtPrompt(secondPrompt));
   await key(36, '\r', shift);
   await type('Review the current directory');
   await expect('Shift-Enter creates a second task line', () =>
     $('#command-input').value === modeTask + '\nReview the current directory');
+  await expect('Multiline input preserves the terminal grid', () =>
+    sourceTerminal.rows === originalRows && sourceTerminal.cols === originalCols &&
+    Math.abs(sourceTerminal.element.querySelector('.xterm-screen').getBoundingClientRect().height - screen.height) < 1);
   await key(36, '\r');
   await expect('A companion PTY opens within the selected tab', () => tabs().length === beforeLaunch &&
     selected() === sourceTab && surface()?.dataset.kind === 'agent' && surface().dataset.state === 'live' &&
@@ -210,7 +238,7 @@ try {
   await enter('First message');
   await expect('Interactive CLI reads the next message', () =>
     rows(commandTerminal).some(line => line.includes('Fixture reply: First message')));
-  await key(40, 'K', command | shift);
+  await key(40, 'k', command);
   await expect('Shell input is restored from agent mode', () =>
     selected() === sourceTab && tabs().length === beforeLaunch && surface()?.dataset.kind === 'shell' &&
     document.activeElement === $('.terminal-page.selected textarea.xterm-helper-textarea'));
@@ -221,7 +249,7 @@ try {
   await enter('Second message');
   await expect('The restored agent still accepts input', () =>
     rows(commandTerminal).some(line => line.includes('Fixture reply: Second message')));
-  await key(40, 'K', command | shift);
+  await key(40, 'k', command);
   await key(26, '7', command);
   await window.webkit.messageHandlers.testKey.postMessage({menuItem:'New Agent Tab'});
   await expect('The native menu opens a new agent tab', () => tabs().length === beforeLaunch + 1 &&
@@ -233,28 +261,28 @@ try {
   await expect('The direct agent tab observes CLI exit', () => surface().dataset.state === 'ended');
   await key(13, 'w', command);
   await expect('Only the direct agent tab closes', () => tabs().length === beforeLaunch);
-  await key(38, 'j', command);
-  await expect('Assistant opens', () => !$('#assist-panel').hidden);
-  $('#question').value = 'What does pwd print?';
-  $('#question').dispatchEvent(new Event('input', {bubbles: true}));
-  $('#ask').click();
-  await expect('Missing key is actionable', () => !$('#reply').hidden && $('#answer').textContent.includes('OPEN_API_KEY'));
-  await key(34, 'i', command);
-  await expect('Inspector available for Claude', () => !$('#inspect-panel').hidden);
-  $('#start-agent').click();
-  await expect('Claude launcher opened', () => $('#agent-launch').open);
-  $('#agent-launch input[value="claude"]').click();
-  task.value = 'Read routing fixture';
-  task.dispatchEvent(new Event('input', {bubbles:true}));
-  $('#agent-submit').click();
-  await expect('Claude task opens', () => selected().textContent.includes('Read routing fixture') &&
-    surface()?.dataset.kind === 'agent' && surface().dataset.state === 'live');
-  const claudeId = Number(surface().id.slice('term-'.length));
-  // Only Anthropic is configured. The local proxy records its host and rejects
-  // the test request. Rust checks that no other connection was attempted.
-  await expect('Claude automatically attempts a summary with its own key', () =>
-    Boolean(summaries.get(claudeId)?.error) && !summaries.get(claudeId).skipped);
-  window.minterm.receive = receiveWithSummary;
+  await key(28, '8', command);
+  await expect('Source shell selected for the next agents', () => selected() === sourceTab && surface().dataset.kind === 'shell');
+  for (const [name, prompt] of [
+    ['claude', 'Read the fixture'],
+    ['opencode', 'Review the fixture\nKeep `pwd` literal.'],
+  ]) {
+    $('#start-agent').click();
+    await expect(name + ' launcher opened', () => $('#agent-launch').open);
+    $('#agent-launch input[value="' + name + '"]').click();
+    task.value = prompt;
+    task.dispatchEvent(new Event('input', {bubbles:true}));
+    $('#agent-submit').click();
+    await expect(name + ' launches in a live PTY', () => tabs().length === beforeLaunch + 1 &&
+      selected().textContent.includes(prompt.split('\n')[0]) && surface().dataset.kind === 'agent' && surface().dataset.state === 'live');
+    const cli = activeTerminal();
+    await enter('follow up');
+    await expect(name + ' handles subsequent input', () => rows(cli).some(line => line.includes('Fixture reply: follow up')));
+    await enter('/exit');
+    await expect(name + ' exits', () => surface().dataset.state === 'ended');
+    await key(13, 'w', command);
+    await expect(name + ' closes independently', () => selected() === sourceTab && tabs().length === beforeLaunch);
+  }
   await verifyPreferences();
   return 'passed';
 } catch (err) {

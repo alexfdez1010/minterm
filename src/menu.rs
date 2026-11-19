@@ -72,7 +72,6 @@ pub fn install() -> muda::Result<(Menu, MenuItem)> {
                 Code::Enter,
             ),
             &item("inspector", "Local Inspector", cmd, Code::KeyI),
-            &item("assist", "Assistant", cmd, Code::KeyJ),
             &item("larger", "Increase Terminal Text", cmd, Code::Equal),
             &item("smaller", "Decrease Terminal Text", cmd, Code::Minus),
             &item("reset-size", "Actual Text Size", cmd, Code::Digit0),

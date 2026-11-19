@@ -1,7 +1,7 @@
 // Run on macOS with a logged-in GUI session and the Xcode Command Line Tools:
 // cargo test --features ui-tests --test macos-ui
 // A subprocess owns the AppKit main thread and a hidden window. Its environment,
-// repositories, agent fixture and credential directory live in a temporary home.
+// repositories and CLI fixtures live in a temporary home.
 use std::{
     env,
     ffi::{CString, c_char, c_void},
@@ -34,11 +34,11 @@ fn init_repository(dir: &Path, branch: &str) {
     );
 }
 
-// Both fixture CLIs require a controlling terminal and accept a single literal task.
+// The fixture CLIs require a controlling terminal and record the literal task.
 fn install_agent_fixtures(home: &Path) -> std::path::PathBuf {
     let bin = home.join(".local/bin");
     fs::create_dir_all(&bin).unwrap();
-    for name in ["codex", "claude"] {
+    for name in ["codex", "claude", "opencode"] {
         let cli = bin.join(name);
         fs::write(
             &cli,
@@ -48,8 +48,8 @@ set -eu
 if [ "$#" -eq 0 ]; then
     record=blank
 else
-    [ "$#" -eq 2 ] && [ "$1" = -- ] || exit 64
-    record=$(basename "$0")
+    record=${0##*/}
+    if [ "$record" != opencode ]; then [ "$#" -eq 2 ] && [ "$1" = -- ] || exit 64; fi
 fi
 pwd > "$record-cwd"
 : > "$record-argv"
@@ -64,7 +64,7 @@ done
         .unwrap();
         fs::set_permissions(cli, fs::Permissions::from_mode(0o700)).unwrap();
     }
-    // Use the isolated test proxy's real listener as a synthetic Docker mapping.
+    // Use the local model catalog's listener as a synthetic Docker port mapping.
     // This exercises deduplication across the Docker parser and real lsof output.
     let docker = bin.join("docker");
     fs::write(
@@ -82,22 +82,6 @@ printf 'fixture-private\tlocal/worker:1\trunning\t8080/tcp\n'
     .unwrap();
     fs::set_permissions(docker, fs::Permissions::from_mode(0o700)).unwrap();
     bin
-}
-
-// Reject CONNECT locally, before TLS handshaking or transmitting any API data.
-fn reject_proxy_requests(proxy: &TcpListener, requests: &mut Vec<String>) {
-    while let Ok((mut stream, _)) = proxy.accept() {
-        stream.set_nonblocking(false).unwrap();
-        stream
-            .set_read_timeout(Some(Duration::from_secs(2)))
-            .unwrap();
-        let mut request = String::new();
-        BufReader::new(&stream).read_line(&mut request).unwrap();
-        requests.push(request.trim_end().to_owned());
-        stream
-            .write_all(b"HTTP/1.1 502 Test proxy\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
-            .unwrap();
-    }
 }
 
 // A newly installed second model appears only after Refresh. Both requests
@@ -164,9 +148,6 @@ fn main() {
             .to_string(),
     )
     .unwrap();
-    let proxy = TcpListener::bind(("127.0.0.1", 0)).unwrap();
-    proxy.set_nonblocking(true).unwrap();
-    let mut requests = Vec::new();
     fs::create_dir(workspace.join("bin")).unwrap();
     // macOS may reject a renamed copy of a signed system executable.
     let fixture = home.join("fixture.c");
@@ -198,14 +179,9 @@ int main(void) {
         .env("HOME", &home)
         .env("SHELL", "/bin/bash")
         .env("LANG", "en_US.UTF-8")
-        .env("ANTHROPIC_API_KEY", "fixture-not-a-real-key")
         .env(
             "FIXTURE_PORT",
-            proxy.local_addr().unwrap().port().to_string(),
-        )
-        .env(
-            "https_proxy",
-            format!("http://{}", proxy.local_addr().unwrap()),
+            models.local_addr().unwrap().port().to_string(),
         )
         .env(
             "PATH",
@@ -222,7 +198,6 @@ int main(void) {
     let deadline = Instant::now() + Duration::from_secs(45);
     loop {
         serve_model_catalog(&models, &mut model_requests);
-        reject_proxy_requests(&proxy, &mut requests);
         if let Some(status) = app.try_wait().unwrap() {
             assert!(status.success(), "Window test exited with {status}");
             break;
@@ -238,7 +213,6 @@ int main(void) {
         home.join("smoke-passed").is_file(),
         "Window test did not finish"
     );
-    assert_eq!(requests, ["CONNECT api.anthropic.com:443 HTTP/1.1"]);
     assert_eq!(model_requests, 2);
     let stored: serde_json::Value = serde_json::from_slice(&fs::read(prefs_file).unwrap()).unwrap();
     assert_eq!(stored["ollamaModel"], "fixture-reasoner:2b");
@@ -267,6 +241,16 @@ int main(void) {
     assert_eq!(
         fs::read(command_dir.join("codex-argv")).unwrap(),
         b"--\0touch shell-must-not-run\nReview the current directory\0",
+    );
+    assert_eq!(
+        fs::read_to_string(command_dir.join("opencode-cwd"))
+            .unwrap()
+            .trim_end(),
+        command_dir.to_str().unwrap()
+    );
+    assert_eq!(
+        fs::read(command_dir.join("opencode-argv")).unwrap(),
+        b"--prompt=Review the fixture\nKeep `pwd` literal.\0"
     );
     assert!(fs::read(nested.join("blank-argv")).unwrap().is_empty());
     assert!(!command_dir.join("shell-must-not-run").exists());

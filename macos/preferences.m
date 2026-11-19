@@ -40,8 +40,8 @@ static BOOL shortcutTaken(NSMenu *menu, NSString *letter, NSEventModifierFlags f
 @implementation MTPreferencesPane {
     MTChangePreference _change;
     NSMutableDictionary *_values;
-    NSPopUpButton *_mode, *_agent;
-    NSButton *_shortcut;
+    NSPopUpButton *_mode, *_agent, *_backend;
+    NSButton *_shortcut, *_refresh;
     NSTextField *_executable, *_host, *_catalogStatus;
     NSComboBox *_model;
     id _monitor;
@@ -57,11 +57,11 @@ static BOOL shortcutTaken(NSMenu *menu, NSString *letter, NSEventModifierFlags f
     _mode.action = @selector(modeChanged:);
     _mode.accessibilityLabel = @"New tabs";
     _agent = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-    [_agent addItemsWithTitles:@[@"Codex", @"Claude Code", @"Codex with Ollama"]];
+    [_agent addItemsWithTitles:@[@"Codex", @"Claude Code", @"OpenCode"]];
     _agent.target = self;
     _agent.action = @selector(agentChanged:);
     _agent.accessibilityLabel = @"Agent command";
-    _shortcut = [NSButton buttonWithTitle:@"⇧⌘K" target:self action:@selector(record:)];
+    _shortcut = [NSButton buttonWithTitle:@"" target:self action:@selector(record:)];
     _shortcut.accessibilityLabel = @"Record switch mode shortcut";
     _shortcut.toolTip = @"Record a Command shortcut";
     _executable = [NSTextField textFieldWithString:@""];
@@ -76,6 +76,11 @@ static BOOL shortcutTaken(NSMenu *menu, NSString *letter, NSEventModifierFlags f
         @[[NSTextField labelWithString:@"Switch mode"], _shortcut],
     ]);
 
+    _backend = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    [_backend addItemsWithTitles:@[@"Codex default", @"Ollama"]];
+    _backend.accessibilityLabel = @"Codex backend";
+    _backend.target = self;
+    _backend.action = @selector(backendChanged:);
     _host = [NSTextField textFieldWithString:@""];
     _host.accessibilityLabel = @"Ollama server";
     _host.delegate = self;
@@ -83,43 +88,46 @@ static BOOL shortcutTaken(NSMenu *menu, NSString *letter, NSEventModifierFlags f
     _model.accessibilityLabel = @"Ollama model";
     _model.placeholderString = @"First installed model";
     _model.delegate = self;
-    NSButton *refresh = [NSButton buttonWithTitle:@"Refresh" target:self action:@selector(refreshModels)];
+    _refresh = [NSButton buttonWithTitle:@"Refresh" target:self action:@selector(refreshModels)];
     _catalogStatus = [NSTextField wrappingLabelWithString:@""];
     _catalogStatus.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
     _catalogStatus.textColor = NSColor.secondaryLabelColor;
     _catalogStatus.hidden = YES;
-    _ollamaView = form(@[
-        @[[NSTextField labelWithString:@"Server"], _host],
-        @[[NSTextField labelWithString:@"Model"], horizontal(@[_model,refresh])],
+    _codexView = form(@[
+        @[[NSTextField labelWithString:@"Backend"], _backend],
+        @[[NSTextField labelWithString:@"Ollama server"], _host],
+        @[[NSTextField labelWithString:@"Model"], horizontal(@[_model,_refresh])],
         @[[NSGridCell emptyContentView], _catalogStatus],
     ]);
     return self;
 }
 
 - (NSString *)executableField {
-    return [_values[@"agent"] isEqual:@"claude"] ? @"claudePath" : @"codexPath";
+    return @[@"codexPath", @"claudePath", @"opencodePath"][_agent.indexOfSelectedItem];
 }
 
 - (void)reload:(NSDictionary *)values {
     [self stopRecording];
     _values = [values mutableCopy];
     [_mode selectItemAtIndex:[values[@"newTabMode"] isEqual:@"agent"] ? 1 : 0];
-    NSInteger index = [@[@"codex",@"claude",@"codex-ollama"] indexOfObject:values[@"agent"]];
+    NSInteger index = [@[@"codex",@"claude",@"opencode"] indexOfObject:values[@"agent"]];
     [_agent selectItemAtIndex:index == NSNotFound ? 0 : index];
     _shortcut.title = values[@"shortcut"];
     _executable.stringValue = values[self.executableField] ?: @"";
     _host.stringValue = values[@"ollamaHost"];
     _model.stringValue = values[@"ollamaModel"] ?: @"";
+    [_backend selectItemAtIndex:[values[@"codexOllama"] boolValue] ? 1 : 0];
+    [self updateBackendControls];
 }
 
 - (BOOL)save:(NSString *)value field:(NSString *)field {
-    if ([_values[field] isEqual:value]) return YES;
+    if (![field isEqual:@"shortcut"] && [_values[field] isEqual:value]) return YES;
     char error[1024] = {0};
     if (!_change(field.UTF8String, value.UTF8String, error, sizeof(error))) {
         NSAlert *alert = [NSAlert new];
         alert.messageText = @"Could not save setting";
         alert.informativeText = @(error);
-        [alert beginSheetModalForWindow:_generalView.window ?: _ollamaView.window completionHandler:nil];
+        [alert beginSheetModalForWindow:_generalView.window ?: _codexView.window completionHandler:nil];
         return NO;
     }
     _values[field] = value;
@@ -130,8 +138,27 @@ static BOOL shortcutTaken(NSMenu *menu, NSString *letter, NSEventModifierFlags f
     [self save:_mode.indexOfSelectedItem == 1 ? @"agent" : @"terminal" field:@"newTabMode"];
 }
 - (void)agentChanged:(id)sender {
-    [self save:@[@"codex",@"claude",@"codex-ollama"][_agent.indexOfSelectedItem] field:@"agent"];
+    [self save:@[@"codex",@"claude",@"opencode"][_agent.indexOfSelectedItem] field:@"agent"];
     _executable.stringValue = _values[self.executableField] ?: @"";
+}
+- (void)updateBackendControls {
+    BOOL enabled = _backend.indexOfSelectedItem == 1;
+    _host.enabled = enabled;
+    _model.enabled = enabled;
+    _refresh.enabled = enabled;
+    if (!enabled) {
+        ++_catalogGeneration;
+        [_modelRequest cancel];
+        _catalogStatus.hidden = YES;
+    }
+}
+- (void)backendChanged:(id)sender {
+    BOOL enabled = _backend.indexOfSelectedItem == 1;
+    if (![self save:enabled ? @"true" : @"false" field:@"codexOllama"]) {
+        [_backend selectItemAtIndex:[_values[@"codexOllama"] boolValue] ? 1 : 0];
+    }
+    [self updateBackendControls];
+    [self refreshModels];
 }
 - (void)choose:(id)sender {
     NSOpenPanel *panel = [NSOpenPanel openPanel];
@@ -160,6 +187,7 @@ static BOOL shortcutTaken(NSMenu *menu, NSString *letter, NSEventModifierFlags f
 }
 
 - (void)refreshModels {
+    if (_backend.indexOfSelectedItem != 1) return;
     NSUInteger generation = ++_catalogGeneration;
     [_modelRequest cancel];
     NSString *host = _values[@"ollamaHost"];
@@ -195,7 +223,7 @@ static BOOL shortcutTaken(NSMenu *menu, NSString *letter, NSEventModifierFlags f
 - (void)stopRecording {
     if (_monitor) [NSEvent removeMonitor:_monitor];
     _monitor = nil;
-    _shortcut.title = _values[@"shortcut"] ?: @"⇧⌘K";
+    _shortcut.title = _values[@"shortcut"] ?: @"";
 }
 - (void)record:(id)sender {
     if (_monitor) { [self stopRecording]; return; }

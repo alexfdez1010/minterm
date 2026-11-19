@@ -25,7 +25,6 @@ pub fn serve(_: wry::WebViewId<'_>, request: Request<Vec<u8>>) -> Response<Cow<'
         "/agents.js" => ("text/javascript", include_bytes!("../ui/agents.js")),
         "/agents.css" => ("text/css", include_bytes!("../ui/agents.css")),
         "/app.css" => ("text/css", include_bytes!("../ui/app.css")),
-        "/assistant.js" => ("text/javascript", include_bytes!("../ui/assistant.js")),
         "/inspector.js" => ("text/javascript", include_bytes!("../ui/inspector.js")),
         "/shared.js" => ("text/javascript", include_bytes!("../ui/shared.js")),
         "/app.js" => ("text/javascript", include_bytes!("../ui/app.js")),

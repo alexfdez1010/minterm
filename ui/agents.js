@@ -9,102 +9,51 @@ const states = {
   stopped: "Stopped",
 };
 const rows = new Map();
-let selectSession, tabLabel, readExcerpt, submitSummary;
-let excerptSession, excerptTrigger;
+let selectSession, tabLabel;
 
-// Restore focus to the opener on cancel, including in WebKit where clicking a
-// button need not focus it. A successful launch gives focus to the new PTY.
-function bindDialog(dialog, form, field, submit, cancel, restoreFocus, onSubmit) {
-  function cancelDialog() {
+export function initAgents(select, label, launch, preferredAgent) {
+  selectSession = select;
+  tabLabel = label;
+  const dialog = $("agent-launch");
+  const form = $("agent-launch-form");
+  const task = $("agent-prompt");
+  const submit = $("agent-submit");
+  const opener = $("start-agent");
+  opener.onclick = () => {
+    form.reset();
+    form.elements.agent.value = preferredAgent();
+    submit.disabled = true;
+    dialog.showModal();
+    task.focus();
+  };
+  const cancel = () => {
     dialog.close();
-    restoreFocus()?.focus();
-  }
-  cancel.onclick = cancelDialog;
+    opener.focus();
+  };
+  $("agent-cancel").onclick = cancel;
   dialog.oncancel = (event) => {
     event.preventDefault();
-    cancelDialog();
+    cancel();
   };
   dialog.onclose = () => {
-    if (!dialog.open) field.value = "";
+    if (!dialog.open) task.value = "";
   };
-  field.oninput = () => {
-    submit.disabled = !field.value.trim();
+  task.oninput = () => {
+    submit.disabled = !task.value.trim();
   };
-  dialog.addEventListener("keydown", (event) => {
+  dialog.onkeydown = (event) => {
     if (!event.isComposing && event.metaKey && event.key === "Enter") {
       event.preventDefault();
       if (!submit.disabled) form.requestSubmit(submit);
     }
-  });
+  };
   form.onsubmit = (event) => {
     event.preventDefault();
-    if (!field.value.trim() || !dialog.open) return;
+    const prompt = task.value.trim();
+    if (!dialog.open || !prompt) return;
     dialog.close();
-    onSubmit();
+    launch({ agent: form.elements.agent.value, prompt });
   };
-}
-
-export function initAgents(
-  select,
-  label,
-  launch,
-  preview,
-  summarize,
-  preferredAgent = () => "codex",
-) {
-  selectSession = select;
-  tabLabel = label;
-  readExcerpt = preview;
-  submitSummary = summarize;
-  const launcher = $("agent-launch");
-  const form = $("agent-launch-form");
-  const task = $("agent-prompt");
-  $("start-agent").onclick = () => {
-    form.reset();
-    form.elements.agent.value = preferredAgent();
-    $("agent-submit").disabled = true;
-    launcher.showModal();
-    task.focus();
-  };
-  bindDialog(
-    launcher,
-    form,
-    task,
-    $("agent-submit"),
-    $("agent-cancel"),
-    () => $("start-agent"),
-    () => {
-      const prompt = task.value.trim();
-      task.value = "";
-      launch({ agent: form.elements.agent.value, prompt });
-    },
-  );
-  bindDialog(
-    $("agent-summary"),
-    $("excerpt-form"),
-    $("agent-excerpt"),
-    $("excerpt-submit"),
-    $("excerpt-cancel"),
-    () => (excerptTrigger?.isConnected ? excerptTrigger : $("start-agent")),
-    () => {
-      const excerpt = $("agent-excerpt").value.trim();
-      $("agent-excerpt").value = "";
-      if (excerptTrigger?.isConnected) excerptTrigger.focus();
-      submitSummary({ id: excerptSession, provider: $("excerpt-provider").value, excerpt });
-    },
-  );
-}
-
-function openExcerpt(id, trigger) {
-  excerptSession = id;
-  excerptTrigger = trigger;
-  const field = $("agent-excerpt");
-  field.value = (readExcerpt(id) || "").slice(-field.maxLength);
-  $("excerpt-provider").value = $("provider").value;
-  $("excerpt-submit").disabled = !field.value.trim();
-  $("agent-summary").showModal();
-  field.focus();
-  field.setSelectionRange(0, 0);
 }
 
 function newRow(id) {
@@ -116,20 +65,10 @@ function newRow(id) {
   const location = element("small");
   const status = element("small", "agent-status");
   const detail = element("small", "agent-detail");
-  const summary = element("small", "agent-summary-text");
-  const summarize = element("button", "icon agent-summarize");
-  summarize.title = "Summarize activity";
-  summarize.setAttribute("aria-label", "Summarize activity");
-  summarize.setAttribute("aria-haspopup", "dialog");
-  summarize.setAttribute("aria-controls", "agent-summary");
-  summarize.append(icon("spark"));
-  summarize.onclick = () => {
-    if (summarize.getAttribute("aria-disabled") !== "true") openExcerpt(id, summarize);
-  };
-  text.append(title, location, status, detail, summary);
+  text.append(title, location, status, detail);
   button.append(text, icon("arrow"));
-  node.append(button, summarize);
-  return { node, button, title, location, status, detail, summary, summarize };
+  node.append(button);
+  return { node, button, title, location, status, detail };
 }
 
 function setText(node, value) {
@@ -165,14 +104,6 @@ function updateRow(row, agent) {
     detail.replace(/^Run /i, "").toLowerCase() === status.toLowerCase();
   setText(row.detail, detail);
   row.detail.title = detail;
-  const summary = agent.summaryPending
-    ? "Summarizing…"
-    : agent.summaryError || (agent.summary ? "AI summary: " + agent.summary : "");
-  row.summary.hidden = !summary;
-  row.summary.classList.toggle("error", !!agent.summaryError && !agent.summaryPending);
-  setText(row.summary, summary);
-  row.summarize.hidden = !!agent.managed || !agent.foreground;
-  row.summarize.setAttribute("aria-disabled", String(!!agent.summaryPending));
 }
 
 export function renderAgents(agents) {

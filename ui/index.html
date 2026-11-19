@@ -41,23 +41,13 @@
           id="command-toggle"
           class="icon"
           type="button"
-          title="Command mode"
+          title="Agent mode"
           aria-label="Agent mode"
           aria-pressed="false"
           aria-controls="command-form terminals"
           disabled
         >
-          <i data-icon="command"></i>
-        </button>
-        <button
-          id="assist-toggle"
-          class="icon"
-          aria-label="Assistant"
-          title="Assistant (⌘J)"
-          aria-controls="assist-panel"
-          aria-pressed="false"
-        >
-          <i data-icon="spark"></i>
+          <i data-icon="robot"></i>
         </button>
         <button
           id="inspector-toggle"
@@ -73,33 +63,21 @@
     </header>
     <main>
       <section class="workspace" aria-label="Terminal workspace">
-        <div id="terminals"></div>
-        <form id="command-form" aria-label="Command mode" hidden>
-          <div class="command-heading">
-            <label for="command-input">Open <span id="command-agent">Codex</span></label>
-            <bdi id="command-dir"></bdi>
-          </div>
-          <div class="command-entry">
+        <div id="terminals">
+          <form id="command-form" aria-label="Agent prompt" hidden>
+            <label id="command-marker" for="command-input"><i data-icon="robot"></i></label>
             <textarea
               id="command-input"
-              rows="2"
+              rows="1"
               maxlength="4000"
               spellcheck="false"
-              placeholder="Initial task (optional)"
-              aria-describedby="command-dir command-keys"
+              autocapitalize="off"
+              autocomplete="off"
+              aria-label="Initial agent task"
+              aria-keyshortcuts="Enter Shift+Enter Escape"
             ></textarea>
-            <button
-              class="primary"
-              id="command-submit"
-              type="submit"
-              aria-keyshortcuts="Enter"
-              disabled
-            >
-              Open <kbd aria-hidden="true">↵</kbd>
-            </button>
-          </div>
-          <span id="command-keys">Shift ↵ for a new line <span>Esc to return to shell</span></span>
-        </form>
+          </form>
+        </div>
         <div id="exit-note" hidden><span></span><button id="restart">Open new shell</button></div>
       </section>
       <aside id="sidebar" aria-label="Tools">
@@ -152,70 +130,6 @@
             </details>
           </div>
         </section>
-        <section id="assist-panel" class="panel" hidden>
-          <div class="panel-scroll assistant-content">
-            <div class="provider-label">
-              <label for="provider">Provider</label
-              ><button id="settings" class="icon" title="Settings (⌘,)" aria-label="Settings">
-                <i data-icon="settings"></i>
-              </button>
-            </div>
-            <select id="provider">
-              <option value="openai">OpenAI</option>
-              <option value="anthropic">Anthropic</option>
-              <option value="ollama">Ollama</option>
-            </select>
-            <form id="question-form">
-              <label for="question">Ask a question</label>
-              <textarea
-                id="question"
-                rows="4"
-                maxlength="4000"
-                placeholder="Explain a command or paste an error…"
-                spellcheck="false"
-              ></textarea>
-              <button
-                id="assistant-context"
-                type="button"
-                class="assistant-action"
-                aria-controls="assistant-context-editor"
-              >
-                Explain recent output
-              </button>
-              <div id="assistant-context-editor" hidden>
-                <div class="excerpt-heading">
-                  <label for="assistant-excerpt">Terminal excerpt</label>
-                  <button
-                    id="remove-excerpt"
-                    class="icon"
-                    type="button"
-                    aria-label="Remove excerpt"
-                    title="Remove excerpt"
-                  >
-                    <i data-icon="close"></i>
-                  </button>
-                </div>
-                <textarea
-                  id="assistant-excerpt"
-                  rows="4"
-                  maxlength="3500"
-                  spellcheck="false"
-                ></textarea>
-              </div>
-              <p class="hint" id="assistant-sharing">Only the question is sent.</p>
-              <button class="primary ask" id="ask" type="submit" disabled>
-                Ask OpenAI<i data-icon="arrow"></i>
-              </button>
-            </form>
-            <div class="reply" id="reply" hidden>
-              <h2 id="reply-title"></h2>
-              <div id="answer" role="status"></div>
-              <button id="assistant-followup" type="button" class="assistant-action" hidden>
-                Draft agent task
-              </button>
-            </div>
-          </div>
-        </section>
       </aside>
     </main>
     <div id="notice" role="status" hidden></div>
@@ -232,9 +146,7 @@
               ><input type="radio" name="agent" value="claude" /><span>Claude Code</span></label
             >
             <label
-              ><input type="radio" name="agent" value="codex-ollama" /><span
-                >Codex with Ollama</span
-              ></label
+              ><input type="radio" name="agent" value="opencode" /><span>OpenCode</span></label
             >
           </div>
         </fieldset>
@@ -258,43 +170,6 @@
             disabled
           >
             Start agent <kbd aria-hidden="true">⌘↵</kbd>
-          </button>
-        </div>
-      </form>
-    </dialog>
-    <dialog id="agent-summary" class="agent-dialog" aria-labelledby="excerpt-title">
-      <form id="excerpt-form">
-        <h2 id="excerpt-title">Summarize activity</h2>
-        <div>
-          <label for="excerpt-provider">Provider</label>
-          <select id="excerpt-provider">
-            <option value="openai">OpenAI</option>
-            <option value="anthropic">Anthropic</option>
-            <option value="ollama">Ollama</option>
-          </select>
-        </div>
-        <div>
-          <label for="agent-excerpt">Terminal excerpt</label>
-          <textarea
-            id="agent-excerpt"
-            rows="5"
-            maxlength="4000"
-            required
-            spellcheck="false"
-            aria-describedby="excerpt-sharing"
-          ></textarea>
-          <p class="hint" id="excerpt-sharing">Only this excerpt is sent.</p>
-        </div>
-        <div class="dialog-buttons">
-          <button type="button" class="secondary" id="excerpt-cancel">Cancel</button>
-          <button
-            type="submit"
-            class="primary"
-            id="excerpt-submit"
-            aria-keyshortcuts="Meta+Enter"
-            disabled
-          >
-            Summarize <kbd aria-hidden="true">⌘↵</kbd>
           </button>
         </div>
       </form>
