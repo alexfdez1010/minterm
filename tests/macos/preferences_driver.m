@@ -8,6 +8,57 @@ static NSView *qa_setting(NSView *view, NSString *label) {
     return nil;
 }
 
+static void qa_setting_key(NSWindow *window, NSDictionary *request) {
+    NSString *letter = request[@"letter"], *phase = request[@"phase"];
+    for (NSString *direction in phase.length ? @[phase] : @[@"down", @"up"]) {
+        NSEvent *event = [NSEvent keyEventWithType:[direction isEqual:@"up"] ? NSEventTypeKeyUp : NSEventTypeKeyDown
+            location:NSZeroPoint modifierFlags:[request[@"modifiers"] unsignedIntegerValue]
+            timestamp:NSProcessInfo.processInfo.systemUptime windowNumber:window.windowNumber context:nil
+            characters:request[@"text"] ?: letter charactersIgnoringModifiers:letter
+            isARepeat:[direction isEqual:@"repeat"] keyCode:[request[@"code"] unsignedShortValue]];
+        if ([request[@"direct"] boolValue]) {
+            // The hidden test app has no key window. Route ordinary sheet controls
+            // through the target window; recorded keys use the AppKit event monitor.
+            if (event.type == NSEventTypeKeyDown && [window performKeyEquivalent:event]) continue;
+            [window sendEvent:event];
+        } else {
+            [NSApp postEvent:event atStart:NO];
+        }
+    }
+}
+
+static void qa_command_editor(NSWindow *sheet, NSDictionary *request, void (^reply)(id, NSString *)) {
+    NSString *action = request[@"action"];
+    NSView *content = sheet.contentView;
+    NSButton *shortcut = (NSButton *)qa_setting(content, @"Command shortcut");
+    if (![shortcut isKindOfClass:NSButton.class]) { reply(nil, @"Missing command shortcut recorder"); return; }
+    if ([action isEqual:@"state"]) {
+        NSTextField *name = (NSTextField *)qa_setting(content, @"Command name");
+        NSTextField *command = (NSTextField *)qa_setting(content, @"Shell command");
+        NSPopUpButton *agent = (NSPopUpButton *)qa_setting(content, @"Base agent");
+        NSTextField *error = (NSTextField *)qa_setting(content, @"Command error");
+        reply(@{@"name": name.stringValue, @"agent": agent.selectedItem.representedObject,
+                @"command": command.stringValue, @"shortcut": shortcut.accessibilityValue ?: @"",
+                @"shortcutTitle": shortcut.title, @"shortcutFocused": sheet.firstResponder == shortcut ? @YES : @NO,
+                @"shellFocused": command.currentEditor && sheet.firstResponder == command.currentEditor ? @YES : @NO,
+                @"error": error.stringValue}, nil);
+        return;
+    }
+    if ([action isEqual:@"key"]) {
+        qa_setting_key(sheet, request);
+    } else if ([action isEqual:@"focusCommand"]) {
+        if (![sheet makeFirstResponder:qa_setting(content, @"Shell command")]) { reply(nil, @"Cannot focus shell command"); return; }
+    } else {
+        NSDictionary *buttons = @{@"record": @"Command shortcut", @"clear": @"Clear command shortcut",
+                                  @"save": @"Save"};
+        NSString *label = buttons[action];
+        NSButton *button = label ? (NSButton *)qa_setting(content, label) : nil;
+        if (!button || button.hidden || !button.enabled) { reply(nil, @"Unavailable editor action"); return; }
+        [button performClick:nil];
+    }
+    reply(@YES, nil);
+}
+
 // Drive the same table selection, sheet fields and buttons used in Settings.
 static void qa_commands(NSWindow *window, NSDictionary *request, void (^reply)(id, NSString *)) {
     NSString *action = request[@"action"];
@@ -35,45 +86,24 @@ static void qa_commands(NSWindow *window, NSDictionary *request, void (^reply)(i
         [commands addObject:entry];
     }
     if ([action isEqual:@"state"]) { reply(@{@"commands": commands, @"defaultName": defaultName, @"defaultCount": @(defaults)}, nil); return; }
-    BOOL adding = [action isEqual:@"addCommand"], removing = [action isEqual:@"removeCommand"];
-    BOOL reading = [action isEqual:@"readCommand"], setDefault = [action isEqual:@"default"];
-    if (!(adding || removing || reading || setDefault || [action isEqual:@"editCommand"])) { reply(nil, @"Unknown commands action"); return; }
+    BOOL adding = [action isEqual:@"addCommand"];
+    NSDictionary *buttons = @{@"addCommand": @"Add command", @"editCommand": @"Edit command",
+                              @"removeCommand": @"Remove command", @"default": @"Set as Default"};
+    if (!buttons[action]) { reply(nil, @"Unknown commands action"); return; }
     if (!adding) {
         if (selected < 0) { reply(nil, @"Command missing from Settings list"); return; }
         [table selectRowIndexes:[NSIndexSet indexSetWithIndex:selected] byExtendingSelection:NO];
     }
-    if (setDefault) {
-        [(NSButton *)qa_setting(window.contentView, @"Set as Default") performClick:nil];
-        reply(@YES, nil);
-        return;
-    }
-    NSString *label = adding ? @"Add command" : removing ? @"Remove command" : @"Edit command";
-    [(NSButton *)qa_setting(window.contentView, label) performClick:nil];
-    if (!removing) {
-        NSWindow *sheet = window.attachedSheet;
-        NSTextField *name = (NSTextField *)qa_setting(sheet.contentView, @"Command name");
-        NSTextField *command = (NSTextField *)qa_setting(sheet.contentView, @"Shell command");
-        NSPopUpButton *agent = (NSPopUpButton *)qa_setting(sheet.contentView, @"Base agent");
-        NSTextField *shortcut = (NSTextField *)qa_setting(sheet.contentView, @"Command shortcut");
-        if (!name || !command || !agent || !shortcut) { reply(nil, @"Missing command sheet"); return; }
-        if (reading) {
-            NSDictionary *fields = @{@"name": name.stringValue, @"agent": agent.selectedItem.representedObject,
-                                     @"command": command.stringValue, @"shortcut": shortcut.stringValue};
-            [(NSButton *)qa_setting(sheet.contentView, @"Cancel") performClick:nil];
-            reply(fields, nil);
-            return;
-        }
+    [(NSButton *)qa_setting(window.contentView, buttons[action]) performClick:nil];
+    if (adding || [action isEqual:@"editCommand"]) {
+        NSView *content = window.attachedSheet.contentView;
+        NSTextField *name = (NSTextField *)qa_setting(content, @"Command name");
+        NSTextField *command = (NSTextField *)qa_setting(content, @"Shell command");
+        NSPopUpButton *agent = (NSPopUpButton *)qa_setting(content, @"Base agent");
+        if (!name || !command || !agent) { reply(nil, @"Missing command sheet"); return; }
         if (request[@"name"]) name.stringValue = request[@"name"];
         if (request[@"command"]) command.stringValue = request[@"command"];
-        if (request[@"shortcut"]) shortcut.stringValue = request[@"shortcut"];
         if (request[@"agent"]) [agent selectItemAtIndex:[agent indexOfItemWithRepresentedObject:request[@"agent"]]];
-        [(NSButton *)qa_setting(sheet.contentView, @"Save") performClick:nil];
-        NSTextField *error = (NSTextField *)qa_setting(sheet.contentView, @"Command error");
-        if (error.stringValue.length) {
-            [(NSButton *)qa_setting(sheet.contentView, @"Cancel") performClick:nil];
-            reply(nil, error.stringValue);
-            return;
-        }
     }
     reply(@YES, nil);
 }
@@ -125,7 +155,8 @@ static void qa_preferences(NSWindow *terminal, NSDictionary *request, void (^rep
         return;
     }
     if ([panes.selectedTabViewItem.identifier isEqual:@"Commands"]) {
-        qa_commands(window, request, reply);
+        if (window.attachedSheet) qa_command_editor(window.attachedSheet, request, reply);
+        else qa_commands(window, request, reply);
         return;
     }
     NSPopUpButton *mode = (NSPopUpButton *)qa_setting(window.contentView, @"New tabs");
@@ -151,13 +182,7 @@ static void qa_preferences(NSWindow *terminal, NSDictionary *request, void (^rep
     } else if ([action isEqual:@"record"]) {
         [shortcut performClick:nil];
     } else if ([action isEqual:@"key"]) {
-        NSString *letter = request[@"letter"];
-        NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint
-            modifierFlags:[request[@"modifiers"] unsignedIntegerValue] timestamp:NSProcessInfo.processInfo.systemUptime
-            windowNumber:window.windowNumber context:nil characters:letter charactersIgnoringModifiers:letter
-            isARepeat:NO keyCode:[request[@"code"] unsignedShortValue]];
-        // The recorder is a real AppKit local event monitor, scoped to this window.
-        [NSApp postEvent:event atStart:YES];
+        qa_setting_key(window, request);
     } else {
         reply(nil, @"Unknown Settings test action");
         return;

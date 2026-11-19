@@ -1,4 +1,5 @@
 #import "agent_commands.h"
+#import "command_shortcut.h"
 
 @interface MTCommandCell : NSTextFieldCell
 @end
@@ -30,7 +31,9 @@ static void addBaseAgents(NSPopUpButton *popup) {
     NSTableView *_table;
     NSButton *_add, *_remove, *_edit, *_setDefault;
     NSPanel *_sheet;
-    NSTextField *_name, *_command, *_shortcut, *_error, *_configError;
+    NSTextField *_name, *_command, *_error, *_configError;
+    MTCommandShortcutButton *_shortcut;
+    NSButton *_clearShortcut, *_save;
     NSPopUpButton *_agent;
     NSDictionary *_previous;
 }
@@ -198,6 +201,25 @@ static void addBaseAgents(NSPopUpButton *popup) {
     if (message) [self presentError:message title:@"Could not remove command"];
 }
 
+- (NSString *)conflictForShortcut:(NSString *)candidate {
+    // A saved Enter shortcut also accepts Control with the same letter.
+    NSString *letter = [candidate componentsSeparatedByString:@"+"].lastObject;
+    for (NSDictionary *entry in _commands) {
+        if ([entry[@"name"] isEqual:_previous[@"name"]]) continue;
+        if ([entry[@"shortcut"] hasSuffix:letter]) {
+            return [NSString stringWithFormat:@"Already used by %@. Try another letter.", entry[@"name"]];
+        }
+    }
+    return nil;
+}
+
+- (void)shortcutFeedback:(NSString *)error {
+    _clearShortcut.hidden = !_shortcut.shortcut.length;
+    _save.enabled = !_shortcut.recording;
+    _error.stringValue = error;
+    if (error.length) NSAccessibilityPostNotification(_error, NSAccessibilityValueChangedNotification);
+}
+
 - (void)showEditor:(NSDictionary *)previous {
     if (_sheet) return;
     _previous = previous;
@@ -215,10 +237,7 @@ static void addBaseAgents(NSPopUpButton *popup) {
     _command = [NSTextField textFieldWithString:previous[@"command"] ?: @""];
     _command.accessibilityLabel = @"Shell command";
     _command.placeholderString = @"Alias or executable with arguments";
-    _shortcut = [NSTextField textFieldWithString:previous[@"shortcut"] ?: @""];
-    _shortcut.accessibilityLabel = @"Command shortcut";
-    _shortcut.placeholderString = @"Optional, e.g. Ctrl+Q";
-    for (NSTextField *field in @[_name, _command, _shortcut]) {
+    for (NSTextField *field in @[_name, _command]) {
         field.delegate = self;
         field.font = [NSFont monospacedSystemFontOfSize:NSFont.systemFontSize weight:NSFontWeightRegular];
         field.usesSingleLineMode = YES;
@@ -227,21 +246,38 @@ static void addBaseAgents(NSPopUpButton *popup) {
     }
     _error = [NSTextField wrappingLabelWithString:@""];
     _error.accessibilityLabel = @"Command error";
-    _error.textColor = NSColor.systemRedColor;
+    _error.textColor = NSColor.labelColor;
     _error.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    _shortcut = [[MTCommandShortcutButton alloc] initWithShortcut:previous[@"shortcut"]];
+    __weak MTAgentCommands *weakSelf = self;
+    _shortcut.conflict = ^NSString *(NSString *key) { return [weakSelf conflictForShortcut:key]; };
+    _shortcut.feedback = ^(NSString *error) { [weakSelf shortcutFeedback:error]; };
+    _clearShortcut = [NSButton buttonWithImage:[NSImage imageWithSystemSymbolName:@"xmark.circle.fill"
+        accessibilityDescription:@"Clear shortcut"] target:_shortcut action:@selector(clearShortcut:)];
+    _clearShortcut.bordered = NO;
+    _clearShortcut.accessibilityLabel = @"Clear command shortcut";
+    _clearShortcut.toolTip = @"Clear shortcut";
+    _clearShortcut.hidden = !_shortcut.shortcut.length;
+    NSStackView *shortcuts = [NSStackView stackViewWithViews:@[_shortcut, _clearShortcut]];
+    shortcuts.detachesHiddenViews = NO;
+    shortcuts.spacing = 4;
+    [_shortcut.widthAnchor constraintGreaterThanOrEqualToConstant:152].active = YES;
+    [_clearShortcut.widthAnchor constraintEqualToConstant:24].active = YES;
+    [_clearShortcut.heightAnchor constraintGreaterThanOrEqualToConstant:24].active = YES;
     NSGridView *grid = MTFormGrid(@[
         @[[NSTextField labelWithString:@"Name"], _name],
         @[[NSTextField labelWithString:@"Agent"], _agent],
         @[[NSTextField labelWithString:@"Shell command"], _command],
-        @[[NSTextField labelWithString:@"Shortcut"], _shortcut],
+        @[[NSTextField labelWithString:@"Shortcut"], shortcuts],
     ]);
+    [grid cellForView:shortcuts].xPlacement = NSGridCellPlacementLeading;
     grid.rowSpacing = 10;
 
     NSButton *cancel = [NSButton buttonWithTitle:@"Cancel" target:self action:@selector(cancel:)];
     cancel.keyEquivalent = @"\e";
-    NSButton *save = [NSButton buttonWithTitle:@"Save" target:self action:@selector(save:)];
-    save.keyEquivalent = @"\r";
-    NSStackView *buttons = [NSStackView stackViewWithViews:@[cancel, save]];
+    _save = [NSButton buttonWithTitle:@"Save" target:self action:@selector(save:)];
+    _save.keyEquivalent = @"\r";
+    NSStackView *buttons = [NSStackView stackViewWithViews:@[cancel, _save]];
     NSView *content = _sheet.contentView;
     for (NSView *item in @[grid, _error, buttons]) {
         item.translatesAutoresizingMaskIntoConstraints = NO;
@@ -252,11 +288,19 @@ static void addBaseAgents(NSPopUpButton *popup) {
         [grid.leadingAnchor constraintEqualToAnchor:content.leadingAnchor constant:20],
         [grid.trailingAnchor constraintEqualToAnchor:content.trailingAnchor constant:-20],
         [_error.topAnchor constraintEqualToAnchor:grid.bottomAnchor constant:5],
-        [_error.leadingAnchor constraintEqualToAnchor:grid.leadingAnchor],
+        [_error.leadingAnchor constraintEqualToAnchor:_shortcut.leadingAnchor],
         [_error.trailingAnchor constraintEqualToAnchor:grid.trailingAnchor],
         [buttons.bottomAnchor constraintEqualToAnchor:content.bottomAnchor constant:-14],
         [buttons.trailingAnchor constraintEqualToAnchor:grid.trailingAnchor],
     ]];
+    // Programmatically assembled AppKit sheets need a key loop across the nested stacks.
+    _name.nextKeyView = _agent;
+    _agent.nextKeyView = _command;
+    _command.nextKeyView = _shortcut;
+    _shortcut.nextKeyView = _clearShortcut;
+    _clearShortcut.nextKeyView = cancel;
+    cancel.nextKeyView = _save;
+    _save.nextKeyView = _name;
     _sheet.initialFirstResponder = _name;
     [_view.window beginSheet:_sheet completionHandler:nil];
     [_sheet makeFirstResponder:_name];
@@ -278,6 +322,7 @@ static void addBaseAgents(NSPopUpButton *popup) {
 }
 
 - (void)cancel:(id)sender {
+    [_shortcut stopRecording];
     [_view.window endSheet:_sheet];
     _sheet = nil;
     _previous = nil;
@@ -287,7 +332,7 @@ static void addBaseAgents(NSPopUpButton *popup) {
     NSCharacterSet *spaces = NSCharacterSet.whitespaceAndNewlineCharacterSet;
     NSDictionary *profile = @{@"name": [_name.stringValue stringByTrimmingCharactersInSet:spaces],
                               @"agent": _agent.selectedItem.representedObject,
-                              @"shortcut": [_shortcut.stringValue stringByTrimmingCharactersInSet:spaces],
+                              @"shortcut": _shortcut.shortcut,
                               @"command": [_command.stringValue stringByTrimmingCharactersInSet:spaces]};
     NSMutableDictionary *edit = [@{@"replacement": profile} mutableCopy];
     if (_previous) edit[@"previous"] = _previous;

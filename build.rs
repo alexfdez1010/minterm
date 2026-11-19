@@ -4,10 +4,13 @@ fn main() {
     println!("cargo:rerun-if-changed=macos/preferences.m");
     println!("cargo:rerun-if-changed=macos/agent_commands.h");
     println!("cargo:rerun-if-changed=macos/agent_commands.m");
+    println!("cargo:rerun-if-changed=macos/command_shortcut.h");
+    println!("cargo:rerun-if-changed=macos/command_shortcut.m");
     cc::Build::new()
         .file("macos/settings.m")
         .file("macos/preferences.m")
         .file("macos/agent_commands.m")
+        .file("macos/command_shortcut.m")
         .flag("-fobjc-arc")
         .flag("-fblocks")
         .compile("minterm_settings");

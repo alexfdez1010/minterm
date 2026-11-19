@@ -3,6 +3,7 @@ async function verifyPreferences() {
   const settings = (action, args = {}) => window.webkit.messageHandlers.testKey
     .postMessage({preferences: {action, ...args}});
   function matches(actual, expected) {
+    if (expected instanceof RegExp) return typeof actual === 'string' && expected.test(actual);
     if (Array.isArray(expected)) return Array.isArray(actual) && actual.length === expected.length &&
       expected.every((value, i) => matches(actual[i], value));
     if (expected && typeof expected === 'object') return actual &&
@@ -22,7 +23,10 @@ async function verifyPreferences() {
   const open = async () => {
     if (!await key(43, ',', command)) throw new Error('Settings menu shortcut was unavailable');
   };
-  const recordKey = (code, letter, modifiers) => settings('key', {code, letter, modifiers});
+  const recordKey = (code, letter, modifiers = 0, options = {}) => settings('key', {
+    code, letter, modifiers, ...options,
+    text: modifiers === control ? String.fromCharCode(letter.toUpperCase().charCodeAt(0) & 31) : letter,
+  });
   const defaults = {mode: 'Terminal', shortcut: '⌘K'};
   const option = 1 << 19;
   await settings('prepare');
@@ -30,7 +34,7 @@ async function verifyPreferences() {
   const presets = [
     {name: 'codex', title: 'Codex', agent: '', command: 'codex'},
     {name: 'claude', title: 'Claude Code', agent: '', command: 'claude'},
-    {name: 'opencode', title: 'OpenCode', agent: '', command: 'opencode'},
+    {name: 'opencode', title: 'OpenCode', agent: '', command: 'opencode', shortcut: ''},
     {name: 'ocq', agent: 'opencode', command: 'ocq --', shortcut: ''},
     {name: 'sol-light', agent: 'codex', shortcut: 'Ctrl+L'},
     {name: 'sol-ultra', agent: 'codex', shortcut: 'Ctrl+U'},
@@ -42,19 +46,79 @@ async function verifyPreferences() {
   await pane('Commands');
   await commandState(presets, 'codex');
   const editedStock = {name: 'opencode', agent: 'opencode',
-    command: '"$HOME/.local/bin/opencode" --model "fixture/qwen tuned"', shortcut: ''};
+    command: '"$HOME/.local/bin/opencode" --model "fixture/qwen tuned"', shortcut: 'Ctrl+P'};
   await settings('editCommand', editedStock);
+  await state({shortcut: ''});
+  await settings('focusCommand');
+  await recordKey(48, '\t', 0, {direct: true});
+  await state({shortcutFocused: true});
+  await recordKey(49, ' ', 0, {direct: true});
+  await state({shortcutTitle: /press/i});
+  await recordKey(35, 'p', control);
+  await state({shortcut: editedStock.shortcut, error: ''});
+  await settings('save');
   const edited = presets.map(profile => profile.name === editedStock.name ? {...editedStock, agent: ''} : profile);
   await commandState(edited, 'codex');
-  const reopened = await settings('readCommand', {name: editedStock.name});
-  if (!matches(reopened, editedStock)) throw new Error('Reopened stock command: ' + JSON.stringify(reopened));
-  const profile = {name: 'localq', agent: 'opencode', command: 'ocq', shortcut: 'Ctrl+R'};
+  await settings('editCommand', {name: editedStock.name});
+  await state(editedStock);
+  const savedTitle = (await settings('state')).shortcutTitle;
+  await settings('record');
+  await recordKey(53, '\u001b');
+  await state({...editedStock, shortcutTitle: savedTitle});
+  await settings('record');
+  await recordKey(48, '\t', shift);
+  await state({...editedStock, shortcutFocused: false, shellFocused: true, shortcutTitle: savedTitle});
+  await recordKey(48, '\t', 0, {direct: true});
+  await state({shortcutFocused: true});
+  await recordKey(51, '\u007f', 0, {direct: true});
+  await state({shortcut: ''});
+  await recordKey(53, '\u001b', 0, {direct: true});
+  await commandState(edited, 'codex');
+
+  const profile = {name: 'localq', agent: 'opencode', command: 'ocq', shortcut: 'Enter+R'};
   await settings('addCommand', profile);
+  await settings('record');
+  await state({shortcutFocused: true});
+  await recordKey(37, 'l');
+  await state({shortcut: '', error: /letter/i});
+  await recordKey(35, 'p', control);
+  await state({shortcut: '', error: /opencode/i});
+  // Retry within the same recording session using a held Return chord.
+  await recordKey(36, '\r', 0, {phase: 'down'});
+  await recordKey(15, 'r');
+  await recordKey(36, '\r', 0, {phase: 'repeat'});
+  await recordKey(36, '\r', 0, {phase: 'up'});
+  await state({shortcut: profile.shortcut, error: ''});
+  await settings('save');
   await commandState([...edited, profile], 'codex');
   await choose(profile.name);
   await commandState([...edited, profile], profile.name);
   const renamed = {...profile, name: 'qwenreview', shortcut: 'Ctrl+Y'};
   await settings('editCommand', {original: profile.name, ...renamed});
+  await settings('record');
+  await recordKey(16, 'y', control);
+  await state({shortcut: renamed.shortcut});
+  await settings('save');
+  await commandState([...edited, renamed], renamed.name);
+  await settings('close');
+
+  // The newly recorded shortcut overrides the default profile at the robot prompt.
+  const page = () => $('.terminal-page.selected');
+  await key(17, 't', command);
+  await expect('Shell ready for the recorded shortcut', () => page()?.dataset.kind === 'shell' && page().dataset.state === 'live');
+  await enter('mkdir -p "$HOME/recording" && cd "$HOME/recording" && echo ready');
+  await expect('Shortcut test shell has its own directory', () => selected().title.includes('/recording'));
+  await key(40, 'k', command);
+  await expect('Robot prompt ready for the recorded shortcut', () => document.activeElement === $('#command-input'));
+  await controlLetter(35, 'p');
+  await expect('Recorded shortcut opens its agent terminal', () => page()?.dataset.kind === 'agent' && page().dataset.state === 'live');
+  const recordedTerminal = activeTerminal();
+  await expect('Recorded shortcut selects the edited OpenCode command', () =>
+    rows(recordedTerminal).includes('Model: fixture/qwen tuned'));
+  await enter('/exit');
+  await expect('Recorded shortcut session exits', () => page().dataset.state === 'ended');
+  await key(13, 'w', command);
+  await open();
   await commandState([...edited, renamed], renamed.name);
   await pane('General');
   await settings('mode', {value: 'Agent'});
@@ -81,7 +145,6 @@ async function verifyPreferences() {
   await settings('close');
   const before = tabs().length;
   await key(17, 't', command);
-  const page = () => $('.terminal-page.selected');
   await expect('Command-T honors the default agent tab preference', () =>
     tabs().length === before + 1 && selected().textContent.includes('OpenCode') &&
     page()?.dataset.kind === 'agent' && page().dataset.state === 'live');
@@ -99,6 +162,9 @@ async function verifyPreferences() {
   await open();
   await commandState(edited, editedStock.name);
   await settings('editCommand', {name: 'opencode', command: 'opencode'});
+  await settings('clear');
+  await state({shortcut: ''});
+  await settings('save');
   await choose('codex');
   await commandState(presets, 'codex');
   await pane('General');
