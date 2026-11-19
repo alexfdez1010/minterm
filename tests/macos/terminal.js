@@ -38,6 +38,37 @@ async function enter(text) {
   await type(text);
   await key(36, '\r');
 }
+function contrast(first, second) {
+  const luminance = color => {
+    const [r, g, b] = color.match(/[\d.]+/g).slice(0, 3).map(value => {
+      const channel = Number(value) / 255;
+      return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const a = luminance(first), b = luminance(second);
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+}
+function verifyCloseContrast(dialog, button) {
+  const resting = getComputedStyle(button).backgroundColor;
+  const changed = [];
+  // AppKit has no pointing device over its hidden test window. Give :hover
+  // a test-only equivalent of equal specificity in the actual CSS cascade.
+  try {
+    for (const sheet of document.styleSheets) for (const rule of sheet.cssRules) {
+      if (!rule.selectorText?.includes(':hover')) continue;
+      changed.push([rule, rule.selectorText]);
+      rule.selectorText = rule.selectorText.replaceAll(':hover', ':is(:hover, [data-qa-hover])');
+    }
+    button.setAttribute('data-qa-hover', '');
+    const style = getComputedStyle(button), surface = style.backgroundColor;
+    if (contrast(style.color, surface) < 4.5 || contrast(surface, getComputedStyle(dialog).backgroundColor) < 3 ||
+        contrast(surface, resting) < 3) throw new Error('Close tab loses contrast on hover');
+  } finally {
+    button.removeAttribute('data-qa-hover');
+    for (const [rule, selector] of changed) rule.selectorText = selector;
+  }
+}
 try {
   await expect('First shell and its Git branch', () => tabs().length === 1 &&
     $('.terminal-page.selected')?.dataset.state === 'live' && selected().title.includes('main') && selected().title.includes('/workspace'));
@@ -155,6 +186,13 @@ try {
   await expect('Inspector shows local activity from the CLI', () =>
     launchedRow()?.textContent.includes('Running a command') &&
     launchedRow()?.querySelector('.agent-status')?.dataset.state === 'running');
+  await key(13, 'w', command);
+  const confirm = $('#confirm'), close = $('#confirm-close');
+  await expect('Command-W on the live agent asks before closing', () =>
+    confirm.open && close.textContent === 'Close tab' && document.activeElement === $('#cancel'));
+  verifyCloseContrast(confirm, close);
+  $('#cancel').click();
+  await expect('Cancel keeps the running session selected', () => !confirm.open && selected() === launchedTab);
   await key(28, '8', command);
   await expect('Source shell stays available during the run', () => selected() === sourceTab);
   await key(25, '9', command);
