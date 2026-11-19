@@ -165,55 +165,6 @@ main {
   flex-direction: column;
   position: relative;
 }
-.context {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 0 17px;
-  height: 42px;
-  flex: none;
-  background: var(--surface-inset);
-  color: var(--muted);
-  font: var(--type-small) var(--mono);
-  min-width: 0;
-}
-.path,
-#branch {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-width: 0;
-}
-.path {
-  flex: 0 1 auto;
-}
-.path i svg,
-#branch i svg {
-  width: 14px;
-  height: 14px;
-}
-.path bdi,
-#branch bdi {
-  min-width: 0;
-  text-overflow: ellipsis;
-  overflow: hidden;
-  white-space: nowrap;
-}
-#branch {
-  flex: 0 1 auto;
-  max-width: 46%;
-  color: var(--mint);
-  padding: var(--space-1) var(--space-2);
-  border-radius: 4px;
-  background: var(--surface-accent);
-}
-.dirty {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  flex: none;
-  background: var(--attention);
-}
 #terminals {
   position: relative;
   min-height: 0;
@@ -556,9 +507,6 @@ details[open] summary i:last-child svg {
 }
 .provider-label label {
   margin: 0;
-}
-.focus-mode .context {
-  display: none;
 }
 #question-form,
 .reply {

@@ -31,7 +31,7 @@ The Rust host uses macOS WebKit and a bundled copy of xterm.js. Building and run
 
 In zsh and Bash, the prompt shows the current folder, the Git branch and a chevron. The chevron turns amber when a command fails. A detached checkout shows its short commit ID. Minterm reads Git’s HEAD file to build the prompt. To keep your existing prompt, launch Minterm with `MINTERM_PROMPT=0`. Other shells keep their own prompt.
 
-The directory and Git branch follow the active session. An amber mark indicates changes to tracked files. Hover over the directory to see the full path. The inspector opens with Agents expanded. Expand Listening ports or Docker databases to start a service scan. Each section collapses independently.
+Hover over a tab to see its full path, current Git ref and any changes to tracked files. The inspector opens with Agents expanded. Expand Listening ports or Docker databases to start a service scan. Each section collapses independently.
 
 The **Development** filter prioritizes common web and database ports and recognized database mappings from Docker. **All ports** shows all TCP listeners visible to your macOS account. The process name and PID come from the listener. A label such as Vite describes the port’s usual purpose. The Docker section uses the local Docker context and recognizes database image names including PostgreSQL, pgvector, MySQL, MongoDB and Redis.
 

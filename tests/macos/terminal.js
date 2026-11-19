@@ -35,7 +35,9 @@ async function enter(text) {
 }
 try {
   await expect('First shell and its Git branch', () => tabs().length === 1 &&
-    $('.terminal-page.selected')?.dataset.state === 'live' && $('#branch bdi').textContent === 'main');
+    $('.terminal-page.selected')?.dataset.state === 'live' && selected().title.includes('main') && selected().title.includes('/workspace'));
+  await expect('Terminal directly below the tabs', () => !$('.workspace .context') &&
+    $('.workspace').firstElementChild === $('#terminals'));
   await expect('Only Agents initially expanded', () => $('#agent-section').open &&
     !$('#port-section').open && !$('#db-section').open);
   const terminal = activeTerminal();
@@ -48,18 +50,43 @@ try {
   const first = selected();
   await enter("cd nested; pwd > tested-cwd; printf '<%s>\\n' ready");
   await expect('Shell output and Git branch after cd', () =>
-    $('#branch bdi').textContent === 'agent/review' &&
+    selected().title.includes('agent/review') && selected().title.includes('/workspace/nested') &&
     rows(terminal).some(line => line.includes('<ready>')));
   await expect('Prompt follows cd into another repository', () => hasPrompt('nested', 'agent/review'));
   await enter('../bin/codex');
-  for (const count of [2, 3]) {
+  for (let count = 2; count <= 9; count++) {
     await key(17, 't', command);
     await expect('One new live tab per Command-T', () => tabs().length === count &&
       selected() === tabs()[count - 1] && $('.terminal-page.selected')?.dataset.state === 'live');
   }
-  await expect('New tab inherits the nested directory', () => $('#cwd').title.endsWith('/workspace/nested'));
-  await key(18, '1', command);
-  await expect('Command-1 returns to the first tab', () => selected() === first);
+  await expect('New tab inherits the nested directory', () =>
+    selected().title.includes('/workspace/nested') && selected().title.includes('agent/review'));
+  await key(38, 'j', command);
+  await expect('Assistant accepts keyboard input', () => document.activeElement === $('#question'));
+
+  // Hold Git replies during selection. Number shortcuts must focus the requested
+  // terminal immediately, including when the current focus is in Assistant.
+  const digits = [18, 19, 20, 21, 23, 22, 26, 28, 25]; // macOS physical key codes for 1 through 9
+  const targets = tabs(), receive = window.minterm.receive;
+  const delayed = [];
+  window.minterm.receive = (name, data) => {
+    if (name === 'context') delayed.push(data);
+    else receive(name, data);
+  };
+  try {
+    for (const [index, code] of digits.entries()) {
+      await key(code, String(index + 1), command);
+      await expect('Command-' + (index + 1) + ' selects and focuses its terminal', () =>
+        selected() === targets[index] &&
+        document.activeElement === $('.terminal-page.selected textarea.xterm-helper-textarea'));
+    }
+  } finally {
+    window.minterm.receive = receive;
+    for (const context of delayed) receive('context', context);
+  }
+  await key(18, '&', command); // The unshifted Digit1 symbol on a French keyboard.
+  await expect('Command-Digit1 also works with a nonnumeric layout symbol', () =>
+    selected() === first && document.activeElement === $('.terminal-page.selected textarea.xterm-helper-textarea'));
   await key(48, '\t', 1 << 18);
   await expect('Control-Tab changes tabs', () => selected() === tabs()[1]);
   await key(30, '}', command | shift);
@@ -67,7 +94,7 @@ try {
   await key(33, '{', command | shift);
   await expect('Command-Shift-[ selects the previous tab', () => selected() === tabs()[1]);
   await key(13, 'w', command);
-  await expect('Command-W closes one idle tab', () => tabs().length === 2 && selected() !== first);
+  await expect('Command-W closes one idle tab', () => tabs().length === 8 && selected() !== first);
   if ($('#agent-section').open) $('#agent-section summary').click();
   await key(0, 'A', command | shift);
   await expect('Command-Shift-A expands the agents section', () => $('#agent-section').open);

@@ -39,29 +39,18 @@ function updateTab(tab) {
   const title = tab.title.replace(/(^|:\s+)(?:~?\/)[^\n]*\/([^/]+)$/, "$1$2");
   const name = title || pathLabel;
   tab.label.textContent = name;
-  tab.button.title = tab.title ? tab.title + "\n" + tab.path : tab.path;
+  const details = [tab.path];
+  if (tab.git) {
+    const ref = tab.git.detached ? "HEAD " + tab.git.branch : tab.git.branch;
+    const changes = tab.git.dirty === true ? " · Tracked changes" : "";
+    details.push(ref + changes);
+  }
+  tab.button.title = details.join("\n");
   tab.close.setAttribute("aria-label", "Close " + name);
 }
-function updateContext() {
+function updateSessionState() {
   const tab = current();
   if (!tab) return;
-  $("cwd").textContent = tab.path.split("/").filter(Boolean).at(-1) || "/";
-  $("cwd").title = tab.path;
-  const git = tab.git;
-  $("branch").hidden = !git;
-  if (git) {
-    $("branch").querySelector("bdi").textContent = git.detached ? "HEAD " + git.branch : git.branch;
-    $("branch").querySelector(".dirty").hidden = git.dirty !== true;
-    $("branch").title = [
-      git.branch,
-      git.detached ? "Detached HEAD" : "Git branch",
-      git.dirty === true
-        ? "Tracked changes"
-        : git.dirty === false
-          ? "No tracked changes"
-          : "Change status unavailable",
-    ].join(" · ");
-  }
   tab.page.dataset.state = tab.state;
   tab.page.setAttribute("aria-busy", String(tab.state === "opening"));
   $("exit-note").hidden = tab.state !== "ended" && tab.state !== "failed";
@@ -71,22 +60,25 @@ function fitActive() {
   const tab = current();
   if (!tab) return;
   tab.fit.fit();
-  updateContext();
+  updateSessionState();
+}
+function markSelected(tab, selected) {
+  tab.page.classList.toggle("selected", selected);
+  tab.row.classList.toggle("active", selected);
+  tab.button.setAttribute("aria-selected", String(selected));
+  tab.button.tabIndex = selected ? 0 : -1;
+  tab.page.inert = !selected;
 }
 function selectTab(id) {
-  if (!tabs.has(id)) return;
+  const tab = tabs.get(id);
+  if (!tab) return;
+  const previous = current();
+  if (previous && previous !== tab) markSelected(previous, false);
   active = id;
-  for (const tab of tabs.values()) {
-    const selected = tab.id === id;
-    tab.page.classList.toggle("selected", selected);
-    tab.row.classList.toggle("active", selected);
-    tab.button.setAttribute("aria-selected", String(selected));
-    tab.button.tabIndex = selected ? 0 : -1;
-    tab.page.inert = !selected;
-  }
-  current().row.scrollIntoView({ block: "nearest", inline: "nearest" });
+  markSelected(tab, true);
+  tab.row.scrollIntoView({ block: "nearest", inline: "nearest" });
+  tab.term.focus();
   fitActive();
-  current().term.focus();
   requestContext();
 }
 function newTab() {
@@ -98,6 +90,7 @@ function newTab() {
   page.setAttribute("aria-labelledby", "tab-" + id);
   $("terminals").append(page);
   const row = element("div", "tab");
+  row.dataset.id = String(id);
   const button = element("button", "tab-select");
   button.id = "tab-" + id;
   button.setAttribute("role", "tab");
@@ -159,7 +152,7 @@ function newTab() {
   });
   term.onResize(({ cols, rows }) => {
     if (tab.state === "live") send("resize", { id, cols, rows });
-    if (id === active) updateContext();
+    if (id === active) updateSessionState();
   });
   term.onTitleChange((title) => {
     tab.title = title
@@ -279,7 +272,7 @@ window.minterm = {
           tab.pending.length = 0;
           send("resize", { id: tab.id, cols: tab.term.cols, rows: tab.term.rows });
           send("context", { id: tab.id });
-          if (active === tab.id) updateContext();
+          if (active === tab.id) updateSessionState();
         }
         break;
       case "output":
@@ -290,7 +283,7 @@ window.minterm = {
         if (tab) {
           tab.state = name === "failed" ? "failed" : "ended";
           tab.reason = data.error || data.status;
-          if (active === tab.id) updateContext();
+          if (active === tab.id) updateSessionState();
         }
         break;
       case "closed":
@@ -300,7 +293,7 @@ window.minterm = {
         if (tab) {
           Object.assign(tab, { path: data.path, git: data.git });
           updateTab(tab);
-          if (active === tab.id) updateContext();
+          if (active === tab.id) updateSessionState();
         }
         break;
       case "services":
@@ -367,10 +360,13 @@ document.addEventListener(
     } else if (e.metaKey && e.shiftKey && ["BracketLeft", "BracketRight"].includes(e.code)) {
       e.preventDefault();
       changeTab(e.code === "BracketLeft" ? -1 : 1);
-    } else if (e.metaKey && !e.altKey && /^[1-9]$/.test(e.key)) {
+    } else if (e.metaKey && !e.altKey && !e.ctrlKey && !e.shiftKey &&
+      (/^Digit[1-9]$/.test(e.code) || /^[1-9]$/.test(e.key))) {
       e.preventDefault();
-      const id = [...tabs.keys()][Number(e.key) - 1];
-      if (id) selectTab(id);
+      e.stopPropagation();
+      const number = Number(/^Digit[1-9]$/.test(e.code) ? e.code.slice(-1) : e.key);
+      const row = $("tablist").children[number - 1];
+      if (row) selectTab(Number(row.dataset.id));
     } else if (e.ctrlKey && e.key === "Tab") {
       e.preventDefault();
       changeTab(e.shiftKey ? -1 : 1);
