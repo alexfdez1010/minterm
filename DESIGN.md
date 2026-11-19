@@ -8,13 +8,13 @@ The terminal owns the window. Leave the command line under the cursor when panel
 
 | Role | Treatment |
 | --- | --- |
-| Command entry, output and ports | Martian Mono, with one fixed-width cell grid per terminal |
+| Command entry and output | Minterm Mono, with a shared fixed-width grid for regular and bold text |
 | Tab labels, buttons and inspector text | Barlow Regular or Semibold |
-| Paths, process metadata and Git refs | Monospace, using secondary text color for supporting detail |
+| Paths, ports, process metadata and Git refs in the inspector | Martian Mono, using secondary text color for supporting detail |
 | Active controls, branch and terminal cursor | Mint accent with a change in shape, surface or selection state |
 | Tracked changes and errors | Git status in the tab tooltip, or an explicit error message in the affected control |
 
-The fonts ship locally. Wait for the terminal font before measuring the first grid. Let the system provide glyphs outside the bundled Latin subset. Keep ANSI colors distinct for tools that supply their own syntax highlighting.
+The fonts ship locally. Wait for both terminal weights before measuring the first grid. Minterm Mono uses squared bowls, diagonal openings, a marked zero and distinct shapes for `1`, `l` and `I`. Let the system provide glyphs outside its Latin and terminal-symbol repertoire. Keep ANSI colors distinct for tools that supply their own syntax highlighting.
 
 ## Components and layout
 

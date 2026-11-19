@@ -2,15 +2,16 @@ import { $, agentLabel, element, icon, send } from "./shared.js";
 import { setAgentChoices } from "./agents.js";
 import { initInspector, refreshInspector, receiveServices, receiveAgents } from "./inspector.js";
 import { Activity } from "./activity.js";
-import { theme, terminalFont, defaultFontSize } from "./theme.js";
+import { theme, terminalFont, defaultFontSize, loadTerminalFonts } from "./theme.js";
 import { CommandMode } from "./command.js";
+import { fixTerminalInput } from "./terminal-input.js";
 
 const tabs = new Map();
 const sessions = new Map();
 const activity = new Activity((id) => sessions.get(id)?.term, receiveAgents);
 let active,
   nextId = 1,
-  startPath = "~",
+  startPath,
   fontSize = defaultFontSize;
 let panel = window.innerWidth > 770 ? "inspector" : null;
 let contextTimer, noticeTimer, confirmation, previousPanel;
@@ -153,6 +154,7 @@ function createSession(id, tabId, kind, source) {
   const fit = new FitAddon.FitAddon();
   term.loadAddon(fit);
   term.open(page);
+  fixTerminalInput(term);
   const session = {
     id,
     tabId,
@@ -196,6 +198,7 @@ function createSession(id, tabId, kind, source) {
   return session;
 }
 function newTab(task, from = current()?.id, mode = commandMode.newTabMode) {
+  if (!startPath) return;
   if (tabs.size && (task || mode === "agent") && !commandMode.canLaunch(task?.agent || commandMode.agent)) return;
   const id = nextId++;
   const row = element("div", "tab");
@@ -574,7 +577,4 @@ window.addEventListener("focus", () => {
 });
 setInterval(refreshVisible, 4000);
 // The PTY geometry must use the final monospace metrics from its first frame.
-document.fonts.load(defaultFontSize + 'px "Martian Mono"').then(
-  () => send("ready"),
-  () => send("ready"),
-);
+loadTerminalFonts().then(() => send("ready"));

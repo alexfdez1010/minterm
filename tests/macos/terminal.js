@@ -74,6 +74,18 @@ try {
   await expect('First shell and its Git branch', () => tabs().length === 1 &&
     $('.terminal-page.selected')?.dataset.state === 'live' && selected().title.includes('main') && selected().title.includes('/workspace'));
   const zoomTerminal = activeTerminal();
+  const firstFamily = stack => stack.split(',')[0].trim().replaceAll('"', '');
+  const terminalFamily = 'Minterm Mono';
+  for (const weight of ['400', '700']) {
+    if (![...document.fonts].some(face =>
+      firstFamily(face.family) === terminalFamily && face.weight === weight && face.status === 'loaded')) {
+      const faces = [...document.fonts].map(face => [face.family, face.weight, face.status]);
+      throw new Error('Terminal font weight ' + weight + ' was not loaded for the first shell: ' + JSON.stringify(faces));
+    }
+  }
+  if (firstFamily(zoomTerminal.options.fontFamily) !== terminalFamily) {
+    throw new Error('Terminal does not use the bundled Minterm Mono font');
+  }
   const originalFontSize = zoomTerminal.options.fontSize;
   await key(30, '+', command); // Spanish keyboard: dedicated plus key.
   await expect('Command-plus increases text size', () => zoomTerminal.options.fontSize === originalFontSize + 1);
@@ -89,12 +101,57 @@ try {
     document.querySelectorAll('#inspect-panel details').length === 2 &&
     $('#agent-section').open && !$('#port-section').open);
   const terminal = activeTerminal();
+  // Simulate WebKit replacing the last character in xterm's input textarea
+  // after a composition keydown, without starting a composition.
+  const input = terminal.textarea;
+  const dispatchKeydown = (key, keyCode) =>
+    input.dispatchEvent(new KeyboardEvent('keydown', { key, keyCode, bubbles: true, cancelable: true }));
+  const replaceInput = (text, replaced) => {
+    dispatchKeydown('Process', 229);
+    input.setRangeText(text, input.value.length - replaced, input.value.length, 'end');
+  };
+  const emitted = [];
+  const subscription = terminal.onData(data => emitted.push(data));
+  try {
+    for (const letter of 'TRACE') await key(0, letter, shift, letter.toLowerCase());
+    await expect('Native keys reached xterm once', () => emitted.join('') === 'TRACE');
+    await expect('Recent input remains in the helper textarea', () => input.value === 'TRACE');
+    for (const [replacement, replaced] of [['é', 1], ['🙂', 1], ['!', 0], ['!', 0]]) {
+      const previous = emitted.length;
+      replaceInput(replacement, replaced);
+      await expect('New text reached xterm', () => emitted.length > previous);
+      const data = emitted.slice(previous).join('');
+      if (data !== replacement) throw new Error('Unexpected terminal input: ' + JSON.stringify(data));
+    }
+
+    const beforeLetter = emitted.length;
+    replaceInput('?', 1);
+    dispatchKeydown('r', 82);
+    // Synthetic keydown does not perform WebKit's default textarea insertion.
+    input.setRangeText('r', input.value.length, input.value.length, 'end');
+    await pause(30);
+    const letter = emitted.slice(beforeLetter).join('');
+    if (letter !== '?r') throw new Error('Input overlapped a normal key: ' + JSON.stringify(letter));
+
+    const beforeClear = emitted.length;
+    await controlLetter(8, 'c');
+    await expect('Control-C clears the prior shell input', () => emitted.slice(beforeClear).join('') === '\x03');
+    const beforeEnter = emitted.length;
+    input.value = 'TRACE';
+    dispatchKeydown('Process', 229);
+    dispatchKeydown('Enter', 13);
+    await pause(30);
+    const enterData = emitted.slice(beforeEnter).join('');
+    if (enterData !== '\r') throw new Error('Input overlapped Enter: ' + JSON.stringify(enterData));
+  } finally {
+    subscription.dispose();
+    await controlLetter(8, 'c');
+  }
   const hasPrompt = (folder, branch) => rows(terminal).some(line =>
     line.includes(folder) && line.includes(branch) && line.includes('❯'));
   await expect('Prompt names the working directory and branch', () => hasPrompt('workspace', 'main'));
   await document.fonts.ready;
-  await expect('Bundled terminal and interface fonts', () =>
-    document.fonts.check('13px "Martian Mono"') && document.fonts.check('13px Barlow'));
+  await expect('Bundled interface font', () => document.fonts.check('13px Barlow'));
   const first = selected();
   await enter("cd nested; pwd > tested-cwd; printf '<%s>\\n' ready");
   await expect('Shell output and Git branch after cd', () =>
@@ -113,6 +170,9 @@ try {
     selected().title.includes('/workspace/nested') && selected().title.includes('agent/review'));
   await key(40, 'k', command);
   await expect('Agent draft accepts keyboard input', () => document.activeElement === $('#command-input'));
+  if (firstFamily(getComputedStyle($('#command-input')).fontFamily) !== terminalFamily) {
+    throw new Error('Agent draft does not use the terminal font');
+  }
 
   // Hold Git replies during selection. Number shortcuts must focus the requested
   // terminal immediately, including when focus starts in an unsent agent draft.

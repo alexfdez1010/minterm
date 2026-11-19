@@ -20,6 +20,14 @@ pub fn serve(_: wry::WebViewId<'_>, request: Request<Vec<u8>>) -> Response<Cow<'
             "font/woff2",
             include_bytes!("../ui/fonts/martian-mono.woff2"),
         ),
+        "/fonts/Minterm-Mono-Regular.woff2" => (
+            "font/woff2",
+            include_bytes!("../ui/fonts/Minterm-Mono-Regular.woff2"),
+        ),
+        "/fonts/Minterm-Mono-Bold.woff2" => (
+            "font/woff2",
+            include_bytes!("../ui/fonts/Minterm-Mono-Bold.woff2"),
+        ),
         "/command.js" => ("text/javascript", include_bytes!("../ui/command.js")),
         "/activity.js" => ("text/javascript", include_bytes!("../ui/activity.js")),
         "/agents.js" => ("text/javascript", include_bytes!("../ui/agents.js")),
@@ -27,6 +35,7 @@ pub fn serve(_: wry::WebViewId<'_>, request: Request<Vec<u8>>) -> Response<Cow<'
         "/app.css" => ("text/css", include_bytes!("../ui/app.css")),
         "/inspector.js" => ("text/javascript", include_bytes!("../ui/inspector.js")),
         "/shared.js" => ("text/javascript", include_bytes!("../ui/shared.js")),
+        "/terminal-input.js" => ("text/javascript", include_bytes!("../ui/terminal-input.js")),
         "/app.js" => ("text/javascript", include_bytes!("../ui/app.js")),
         "/vendor/xterm.js" => ("text/javascript", include_bytes!("../ui/vendor/xterm.js")),
         "/vendor/addon-fit.js" => (

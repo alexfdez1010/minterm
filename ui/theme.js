@@ -2,8 +2,20 @@
 const styles = getComputedStyle(document.documentElement);
 const token = (name) => styles.getPropertyValue("--" + name).trim();
 
-export const terminalFont = token("mono");
+export const terminalFont = token("terminal-font");
 export const defaultFontSize = Number.parseFloat(token("type-terminal"));
+
+export function loadTerminalFonts() {
+  const family = terminalFont.split(",")[0].trim().replace(/^"|"$/g, "");
+  return Promise.allSettled(
+    [["Regular", "400"], ["Bold", "700"]].map(([style, weight]) => {
+      const face = new FontFace(family, `url(/fonts/Minterm-Mono-${style}.woff2)`, { weight });
+      document.fonts.add(face);
+      return face.load();
+    }),
+  );
+}
+
 export const theme = {
   background: token("canvas"),
   foreground: token("term-fg"),

@@ -531,7 +531,7 @@ details[open] summary i:last-child svg {
   height: var(--command-line);
   background: var(--canvas);
   color: var(--term-fg);
-  font-family: var(--mono);
+  font-family: var(--terminal-font);
   line-height: var(--command-line);
 }
 #command-form::before {

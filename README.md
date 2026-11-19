@@ -98,4 +98,4 @@ The last command drives AppKit and WebKit in a logged-in macOS session with an i
 
 The embedded renderer is xterm.js 6.0.0 with its fit addon 0.11.0. Their upstream licenses are included in [ui/vendor](ui/vendor).
 
-Martian Mono and Barlow are bundled under the SIL Open Font License. See [font licenses](ui/fonts) and the [design system](DESIGN.md).
+Minterm Mono is drawn for the terminal. Regenerate both weights with `uv run ui/fonts/build_minterm_mono.py`. Martian Mono and Barlow are bundled under the SIL Open Font License. See [font licenses](ui/fonts) and the [design system](DESIGN.md).

@@ -46,6 +46,7 @@
 
   --sans: "Barlow", -apple-system, BlinkMacSystemFont, sans-serif;
   --mono: "Martian Mono", Menlo, Monaco, monospace;
+  --terminal-font: "Minterm Mono", Menlo, Monaco, monospace;
   --type-small: 11px;
   --type-label: 12px;
   --type-body: 13px;

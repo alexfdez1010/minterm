@@ -1,4 +1,5 @@
 /target/
 /dist/
 /.code-review-graph/
+/ui/fonts/__pycache__/
 /.DS_Store
