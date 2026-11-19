@@ -2,6 +2,7 @@ use crate::{
     agents, assistant,
     credentials::Provider,
     inspect,
+    jobs::{JobEvent, Jobs},
     sessions::{SessionEvent, Sessions},
     settings,
 };
@@ -56,6 +57,21 @@ pub enum Action {
     Context {
         id: u32,
     },
+    StartJob {
+        id: u32,
+        from: Option<u32>,
+        agent: String,
+        prompt: String,
+    },
+    StopJob {
+        id: u32,
+    },
+    Summarize {
+        id: u32,
+        provider: Provider,
+        excerpt: String,
+        revision: u32,
+    },
     Services,
     Agents,
     Settings,
@@ -69,6 +85,8 @@ pub enum Action {
 pub enum Message {
     Action(Action),
     Shell(SessionEvent),
+    Job(JobEvent),
+    Summary(u32, Value),
     Menu(String),
     Context(u32, Value),
     Services(Value),
@@ -80,6 +98,8 @@ pub struct App {
     view: WebView,
     proxy: EventLoopProxy<Message>,
     sessions: Sessions,
+    jobs: Jobs,
+    summaries: HashSet<u32>,
     start_dir: PathBuf,
     vault_error: Option<String>,
     contexts: HashSet<u32>,
@@ -101,8 +121,14 @@ impl App {
         let sessions = Sessions::new(move |event| {
             let _ = output.send_event(Message::Shell(event));
         });
+        let jobs_proxy = proxy.clone();
+        let jobs = Jobs::new(move |event| {
+            let _ = jobs_proxy.send_event(Message::Job(event));
+        });
         Self {
             view,
+            jobs,
+            summaries: HashSet::new(),
             proxy,
             sessions,
             start_dir,
@@ -156,12 +182,59 @@ impl App {
             Action::Resize { id, cols, rows } => {
                 let _ = self.sessions.resize(id, cols, rows);
             }
+            Action::Ack { id } if self.jobs.contains(id) => self.jobs.ack_output(id),
             Action::Ack { id } => self.sessions.ack_output(id),
+            Action::StartJob {
+                id,
+                from,
+                agent,
+                prompt,
+            } => {
+                let directory = self.directory_for(from);
+                match self.jobs.start(id, &agent, &directory, &prompt) {
+                    Ok(()) => {
+                        self.emit("opened", json!({"id":id, "path":short_path(&directory)}));
+                        self.last_dirs.insert(id, directory);
+                    }
+                    Err(error) => self.emit("failed", json!({"id":id,"error":error})),
+                }
+            }
+            Action::StopJob { id } if self.jobs.running(id) => {
+                self.jobs.close(id);
+                self.emit(
+                    "jobStatus",
+                    json!({"id":id,"state":"stopped","detail":"Stopped"}),
+                );
+                self.emit("exited", json!({"id":id,"status":"Agent stopped."}));
+            }
+            Action::StopJob { .. } => {}
+            Action::Summarize {
+                id,
+                provider,
+                excerpt,
+                revision,
+            } => {
+                if !self.last_dirs.contains_key(&id) {
+                    return;
+                }
+                if !self.summaries.insert(id) {
+                    self.emit("summary", json!({"id":id,"revision":revision,"error":"Another summary is in progress."}));
+                    return;
+                }
+                self.worker(move || {
+                    let value = match assistant::summarize(provider, &excerpt) {
+                        Ok(text) => json!({"id":id,"revision":revision,"text":text}),
+                        Err(error) => json!({"id":id,"revision":revision,"error":error}),
+                    };
+                    Message::Summary(id, value)
+                });
+            }
             Action::Close { id, force } => {
-                if !force && self.sessions.is_busy(id) {
+                if !force && (self.jobs.running(id) || self.sessions.is_busy(id)) {
                     self.emit("confirm", json!({"id":id}));
                 } else {
                     self.sessions.close(id);
+                    self.jobs.close(id);
                     self.last_dirs.remove(&id);
                     self.emit("closed", json!({"id":id}));
                 }
@@ -169,17 +242,23 @@ impl App {
             Action::Quit { force } => {
                 let shells = self.sessions.shell_pids();
                 if !force
-                    && (shells.len() > 1 || shells.iter().any(|(id, _)| self.sessions.is_busy(*id)))
+                    && (shells.len() > 1
+                        || shells.iter().any(|(id, _)| self.sessions.is_busy(*id))
+                        || self.last_dirs.keys().any(|id| self.jobs.running(*id)))
                 {
                     self.emit("confirm", json!({}));
                 } else {
+                    self.jobs.shutdown();
                     self.sessions.shutdown();
                     self.quitting = true;
                 }
             }
             Action::Context { id } => {
                 if !self.contexts.contains(&id)
-                    && let Some(cwd) = self.sessions.cwd(id)
+                    && let Some(cwd) = self
+                        .sessions
+                        .cwd(id)
+                        .or_else(|| self.last_dirs.get(&id).cloned())
                 {
                     self.contexts.insert(id);
                     self.last_dirs.insert(id, cwd.clone());
@@ -214,14 +293,17 @@ impl App {
         }
     }
 
+    fn directory_for(&self, from: Option<u32>) -> PathBuf {
+        from.and_then(|id| {
+            self.sessions
+                .cwd(id)
+                .or_else(|| self.last_dirs.get(&id).cloned())
+        })
+        .unwrap_or_else(|| self.start_dir.clone())
+    }
+
     fn open(&mut self, id: u32, from: Option<u32>, cols: u16, rows: u16) {
-        let directory = from
-            .and_then(|parent| {
-                self.sessions
-                    .cwd(parent)
-                    .or_else(|| self.last_dirs.get(&parent).cloned())
-            })
-            .unwrap_or_else(|| self.start_dir.clone());
+        let directory = self.directory_for(from);
         match self.sessions.open(id, &directory, cols, rows) {
             Ok(()) => {
                 self.emit("opened", json!({"id": id, "path": short_path(&directory)}));
@@ -240,6 +322,27 @@ impl App {
     pub fn receive(&mut self, message: Message) {
         match message {
             Message::Action(action) => self.act(action),
+            Message::Summary(id, value) => {
+                self.summaries.remove(&id);
+                if self.last_dirs.contains_key(&id) {
+                    self.emit("summary", value);
+                }
+            }
+            Message::Job(JobEvent::Output { id, data }) => {
+                if self.jobs.contains(id) {
+                    self.emit("output", json!({"id":id,"data":data}));
+                }
+            }
+            Message::Job(JobEvent::Status { id, state, detail }) => {
+                if self.jobs.contains(id) {
+                    self.emit("jobStatus", json!({"id":id,"state":state,"detail":detail}));
+                }
+            }
+            Message::Job(JobEvent::Exited { id, status }) => {
+                if self.jobs.contains(id) {
+                    self.emit("exited", json!({"id":id,"status":status}));
+                }
+            }
             Message::Shell(SessionEvent::Output { id, data }) => {
                 self.emit("output", json!({"id":id,"data":data}))
             }

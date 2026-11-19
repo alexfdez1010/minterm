@@ -4,6 +4,7 @@ mod assets;
 mod assistant;
 mod credentials;
 mod inspect;
+mod jobs;
 pub mod key_command;
 mod menu;
 mod prompt;
