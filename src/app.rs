@@ -134,17 +134,28 @@ impl App {
 
     pub fn act(&mut self, action: Action) {
         match action {
-            Action::Ready => self.emit("ready", json!({
-                "path":short_path(&self.start_dir),
-                "shell":env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into()).rsplit('/').next(),
-                "vaultError":self.vault_error
-            })),
-            Action::Open { id, from, cols, rows } => self.open(id, from, cols, rows),
+            Action::Ready => self.emit(
+                "ready",
+                json!({
+                    "path":short_path(&self.start_dir),
+                    "vaultError":self.vault_error
+                }),
+            ),
+            Action::Open {
+                id,
+                from,
+                cols,
+                rows,
+            } => self.open(id, from, cols, rows),
             Action::Write { id, data } => self.write(id, data.as_bytes()),
             Action::Binary { id, data } => {
-                if let Ok(bytes) = STANDARD.decode(data) { self.write(id, &bytes); }
+                if let Ok(bytes) = STANDARD.decode(data) {
+                    self.write(id, &bytes);
+                }
             }
-            Action::Resize { id, cols, rows } => { let _ = self.sessions.resize(id, cols, rows); }
+            Action::Resize { id, cols, rows } => {
+                let _ = self.sessions.resize(id, cols, rows);
+            }
             Action::Ack { id } => self.sessions.ack_output(id),
             Action::Close { id, force } => {
                 if !force && self.sessions.is_busy(id) {
@@ -157,7 +168,9 @@ impl App {
             }
             Action::Quit { force } => {
                 let shells = self.sessions.shell_pids();
-                if !force && (shells.len() > 1 || shells.iter().any(|(id, _)| self.sessions.is_busy(*id))) {
+                if !force
+                    && (shells.len() > 1 || shells.iter().any(|(id, _)| self.sessions.is_busy(*id)))
+                {
                     self.emit("confirm", json!({}));
                 } else {
                     self.sessions.shutdown();
@@ -165,10 +178,17 @@ impl App {
                 }
             }
             Action::Context { id } => {
-                if !self.contexts.contains(&id) && let Some(cwd) = self.sessions.cwd(id) {
+                if !self.contexts.contains(&id)
+                    && let Some(cwd) = self.sessions.cwd(id)
+                {
                     self.contexts.insert(id);
                     self.last_dirs.insert(id, cwd.clone());
-                    self.worker(move || Message::Context(id, json!({"id":id,"path":short_path(&cwd),"git":inspect::git(&cwd)})));
+                    self.worker(move || {
+                        Message::Context(
+                            id,
+                            json!({"id":id,"path":short_path(&cwd),"git":inspect::git(&cwd)}),
+                        )
+                    });
                 }
             }
             Action::Services if !self.scanning_services => {
@@ -182,10 +202,12 @@ impl App {
             }
             Action::Ask { provider, question } if !self.asking => {
                 self.asking = true;
-                self.worker(move || Message::Answer(match assistant::ask(provider, &question) {
-                    Ok(text) => json!({"text":text}),
-                    Err(error) => json!({"error":error}),
-                }));
+                self.worker(move || {
+                    Message::Answer(match assistant::ask(provider, &question) {
+                        Ok(text) => json!({"text":text}),
+                        Err(error) => json!({"error":error}),
+                    })
+                });
             }
             Action::Settings => settings::show(),
             Action::Drag | Action::Services | Action::Agents | Action::Ask { .. } => {}

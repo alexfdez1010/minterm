@@ -1,40 +1,16 @@
 import { $, element, icon, send } from "./shared.js";
 import { initInspector, refreshInspector, receiveServices, receiveAgents } from "./inspector.js";
+import { theme, terminalFont, defaultFontSize } from "./theme.js";
 import { initAssistant, receiveAnswer } from "./assistant.js";
 
 const tabs = new Map();
 let active,
   nextId = 1,
-  shell = "shell",
   startPath = "~",
-  fontSize = 13;
+  fontSize = defaultFontSize;
 let panel = window.innerWidth > 770 ? "inspector" : null;
 let contextTimer, noticeTimer, confirmation, previousPanel;
 const current = () => tabs.get(active);
-const theme = {
-  background: "#131618",
-  foreground: "#dbe2dd",
-  cursor: "#a6ebbd",
-  cursorAccent: "#131618",
-  selectionBackground: "#456552",
-  black: "#263030",
-  brightBlack: "#77877f",
-  red: "#ef9a93",
-  green: "#9ce8b8",
-  yellow: "#e8c68a",
-  blue: "#8cbbe8",
-  magenta: "#c7a7e2",
-  cyan: "#8bd5d0",
-  white: "#dce2df",
-  brightRed: "#ffaea6",
-  brightGreen: "#b4f6ca",
-  brightYellow: "#f4d89f",
-  brightBlue: "#b2d2f2",
-  brightMagenta: "#dac0ed",
-  brightCyan: "#a1e5e0",
-  brightWhite: "#f0f5f1",
-};
-
 function outputBytes(encoded) {
   if (Uint8Array.fromBase64) return Uint8Array.fromBase64(encoded);
   const raw = atob(encoded);
@@ -86,15 +62,8 @@ function updateContext() {
           : "Change status unavailable",
     ].join(" · ");
   }
-  $("grid").textContent = tab.term.cols + " × " + tab.term.rows;
-  $("status").textContent = {
-    opening: "Opening shell",
-    live: "Connected",
-    ended: "Shell exited",
-    failed: "Unavailable",
-  }[tab.state];
-  $("connection").classList.toggle("inactive", tab.state !== "live");
-  $("shell-name").textContent = shell;
+  tab.page.dataset.state = tab.state;
+  tab.page.setAttribute("aria-busy", String(tab.state === "opening"));
   $("exit-note").hidden = tab.state !== "ended" && tab.state !== "failed";
   $("exit-note").querySelector("span").textContent = tab.reason || "";
 }
@@ -144,9 +113,9 @@ function newTab() {
   $("tablist").append(row);
   const term = new Terminal({
     theme,
-    fontFamily: '"SFMono-Regular", Menlo, Monaco, monospace',
+    fontFamily: terminalFont,
     fontSize,
-    lineHeight: 1.12,
+    lineHeight: 1.2,
     cursorBlink: false,
     cursorStyle: "block",
     cursorInactiveStyle: "outline",
@@ -284,7 +253,7 @@ function command(name) {
     case "reset-size":
       fontSize =
         name === "reset-size"
-          ? 13
+          ? defaultFontSize
           : Math.max(9, Math.min(28, fontSize + (name === "larger" ? 1 : -1)));
       for (const tab of tabs.values()) tab.term.options.fontSize = fontSize;
       fitActive();
@@ -296,7 +265,6 @@ window.minterm = {
     const tab = tabs.get(data?.id);
     switch (name) {
       case "ready":
-        shell = data.shell || shell;
         startPath = data.path;
         newTab();
         setPanel(panel, false);
@@ -394,9 +362,9 @@ document.addEventListener(
       e.preventDefault();
       if (!e.repeat) command(e.key.toLowerCase() === "t" ? "new" : "close");
     } else if (e.metaKey && e.shiftKey && e.code === "KeyA") {
-    e.preventDefault();
-    command("agents");
-  } else if (e.metaKey && e.shiftKey && ["BracketLeft", "BracketRight"].includes(e.code)) {
+      e.preventDefault();
+      command("agents");
+    } else if (e.metaKey && e.shiftKey && ["BracketLeft", "BracketRight"].includes(e.code)) {
       e.preventDefault();
       changeTab(e.code === "BracketLeft" ? -1 : 1);
     } else if (e.metaKey && !e.altKey && /^[1-9]$/.test(e.key)) {
@@ -431,4 +399,8 @@ function refreshVisible() {
 }
 window.addEventListener("focus", refreshVisible);
 setInterval(refreshVisible, 4000);
-send("ready");
+// The PTY geometry must use the final monospace metrics from its first frame.
+document.fonts.load(defaultFontSize + 'px "Martian Mono"').then(
+  () => send("ready"),
+  () => send("ready"),
+);

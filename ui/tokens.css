@@ -1,0 +1,79 @@
+@font-face {
+  font-family: "Barlow";
+  src: url("/fonts/barlow-regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Barlow";
+  src: url("/fonts/barlow-semibold.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Martian Mono";
+  src: url("/fonts/martian-mono.woff2") format("woff2");
+  font-weight: 100 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: dark;
+  --canvas: #131618;
+  --chrome: #202427;
+  --side: #1b1f21;
+  --surface-inset: #181b1d;
+  --surface-input: #141719;
+  --surface-selected: #353c3e;
+  --surface-raised: #292f31;
+  --surface-accent: #28362e;
+  --hover: #303639;
+  --fg: #e2e7e4;
+  --muted: #a5afaa;
+  --dim: #929e98;
+  --mint: #9ce8b8;
+  --on-mint: #15271c;
+  --mint-hover: #b2f3c8;
+  --attention: #e6bd7a;
+  --danger: #f0b2a9;
+  --on-danger: #311c18;
+  --field-border: #49534e;
+
+  --sans: "Barlow", -apple-system, BlinkMacSystemFont, sans-serif;
+  --mono: "Martian Mono", Menlo, Monaco, monospace;
+  --type-small: 11px;
+  --type-label: 12px;
+  --type-body: 13px;
+  --type-title: 16px;
+  --type-terminal: 13px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --radius-control: 6px;
+  --control-size: 30px;
+  --icon-size: 16px;
+
+  --term-fg: #dbe2dd;
+  --term-selection: #456552;
+  --ansi-black: #263030;
+  --ansi-red: #ef9a93;
+  --ansi-green: var(--mint);
+  --ansi-yellow: #e8c68a;
+  --ansi-blue: #8cbbe8;
+  --ansi-magenta: #c7a7e2;
+  --ansi-cyan: #8bd5d0;
+  --ansi-white: #dce2df;
+  --ansi-bright-black: #77877f;
+  --ansi-bright-red: #ffaea6;
+  --ansi-bright-green: #b4f6ca;
+  --ansi-bright-yellow: #f4d89f;
+  --ansi-bright-blue: #b2d2f2;
+  --ansi-bright-magenta: #dac0ed;
+  --ansi-bright-cyan: #a1e5e0;
+  --ansi-bright-white: #f0f5f1;
+}

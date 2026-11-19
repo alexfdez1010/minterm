@@ -24,6 +24,9 @@ binary=$(
 )
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 install -m 0755 "$binary" "$app/Contents/MacOS/minterm"
+notices="$app/Contents/Resources/Licenses"
+mkdir -p "$notices"
+cp ui/fonts/*-OFL.txt ui/vendor/*-LICENSE "$notices/"
 cp macos/Info.plist "$app/Contents/Info.plist"
 plutil -lint "$app/Contents/Info.plist"
 

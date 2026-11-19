@@ -14,6 +14,8 @@ Minterm is a macOS terminal for CLI agents. Keep terminal input responsive durin
 | Provider requests, encrypted store and native Settings | `src/assistant.rs`, `src/credentials.rs`, `src/settings.rs`, `macos/settings.m` |
 | Tabs, workspace and inspector | `ui/app.js`, `ui/inspector.js`, `ui/assistant.js`, `ui/app.css` |
 
+Use [DESIGN.md](DESIGN.md) and the tokens in `ui/tokens.css` when extending the workspace.
+
 The project skill [minterm-macos](.agents/skills/minterm-macos/SKILL.md) covers changes crossing a shell, the event loop and the macOS window. It includes the opt-in native keyboard test.
 
 ## Implementation conventions

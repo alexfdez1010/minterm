@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Minterm</title>
     <link rel="stylesheet" href="/vendor/xterm.css" />
+    <link rel="preload" href="/fonts/martian-mono.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="/tokens.css" />
     <link rel="stylesheet" href="/app.css" />
     <script defer src="/vendor/xterm.js"></script>
     <script defer src="/vendor/addon-fit.js"></script>
@@ -51,14 +53,6 @@
         </div>
         <div id="terminals"></div>
         <div id="exit-note" hidden><span></span><button id="restart">Open new shell</button></div>
-        <footer>
-          <span id="connection"
-            ><span class="status-dot"></span><span id="status">Opening shell</span></span
-          >
-          <span id="shell-name"></span>
-          <span class="grow"></span>
-          <span id="grid" title="Terminal columns × rows"></span>
-        </footer>
       </section>
       <aside id="sidebar" aria-label="Tools">
         <section id="inspect-panel" class="panel">

@@ -19,7 +19,10 @@ async function enter(text) {
 }
 try {
   await expect('First shell and its Git branch', () => tabs().length === 1 &&
-    $('#status').textContent === 'Connected' && $('#branch bdi').textContent === 'main');
+    $('.terminal-page.selected')?.dataset.state === 'live' && $('#branch bdi').textContent === 'main');
+  await expect('Inspector defaults to running agents', () => $('#agent-section').open && !$('#port-section').open && !$('#db-section').open);
+  await document.fonts.ready;
+  await expect('Bundled fonts loaded', () => document.fonts.check('13px "Martian Mono"') && document.fonts.check('13px Barlow'));
   const first = selected();
   await enter("cd nested; pwd > tested-cwd; printf '<%s>\\n' ready; ../bin/codex");
   await expect('Shell output and Git branch after cd', () =>
@@ -28,7 +31,7 @@ try {
   for (const count of [2, 3]) {
     await key(17, 't', command);
     await expect('One new live tab per Command-T', () => tabs().length === count &&
-      selected() === tabs()[count - 1] && $('#status').textContent === 'Connected');
+      selected() === tabs()[count - 1] && $('.terminal-page.selected')?.dataset.state === 'live');
   }
   await expect('New tab inherits the nested directory', () => $('#cwd').title.endsWith('/workspace/nested'));
   await key(18, '1', command);
