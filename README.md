@@ -35,6 +35,9 @@ The Rust host uses macOS WebKit and a bundled copy of xterm.js. Building and run
 | ⌘⇧A | Open the running agents list |
 | ⌘I | Show or hide the local inspector |
 | ⌘⇧Return | Focus the terminal or restore its panels |
+| ⌘+ | Increase terminal text size |
+| ⌘− | Decrease terminal text size |
+| ⌘0 | Restore the default terminal text size |
 | ⌘, | Open Settings |
 
 In zsh and Bash, the prompt shows the current folder, the Git branch and a chevron. The chevron turns amber when a command fails. A detached checkout shows its short commit ID. Minterm reads Git’s HEAD file to build the prompt. To keep your existing prompt, launch Minterm with `MINTERM_PROMPT=0`. Other shells keep their own prompt.

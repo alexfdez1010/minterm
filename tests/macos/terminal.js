@@ -73,6 +73,16 @@ function verifyCloseContrast(dialog, button) {
 try {
   await expect('First shell and its Git branch', () => tabs().length === 1 &&
     $('.terminal-page.selected')?.dataset.state === 'live' && selected().title.includes('main') && selected().title.includes('/workspace'));
+  const zoomTerminal = activeTerminal();
+  const originalFontSize = zoomTerminal.options.fontSize;
+  await key(30, '+', command); // Spanish keyboard: dedicated plus key.
+  await expect('Command-plus increases text size', () => zoomTerminal.options.fontSize === originalFontSize + 1);
+  await key(24, '+', command | shift); // US keyboard: Shift-Equals.
+  await expect('Shifted Command-plus increases text size', () => zoomTerminal.options.fontSize === originalFontSize + 2);
+  await key(27, '-', command);
+  await expect('Command-minus decreases text size', () => zoomTerminal.options.fontSize === originalFontSize + 1);
+  await key(29, '0', command);
+  await expect('Command-zero restores text size', () => zoomTerminal.options.fontSize === originalFontSize);
   await expect('Terminal directly below the tabs', () => !$('.workspace .context') &&
     $('.workspace').firstElementChild === $('#terminals'));
   await expect('Inspector starts with Agents expanded and Ports collapsed', () =>

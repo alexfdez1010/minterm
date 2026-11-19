@@ -1,4 +1,4 @@
-use muda::accelerator::{Accelerator, Code, Modifiers};
+use muda::accelerator::{Accelerator, Code, Key, KeyAccelerator, Modifiers};
 use muda::{Menu, MenuItem, PredefinedMenuItem as Native, Submenu};
 
 pub fn install() -> muda::Result<(Menu, MenuItem)> {
@@ -55,6 +55,8 @@ pub fn install() -> muda::Result<(Menu, MenuItem)> {
             &Native::select_all(None),
         ],
     )?;
+    let larger = MenuItem::with_id("larger", "Increase Terminal Text", true, None);
+    larger.set_key_accelerator(Some(KeyAccelerator::new(cmd, Key::Character("+".into()))))?;
     let view = Submenu::with_items(
         "View",
         true,
@@ -72,7 +74,7 @@ pub fn install() -> muda::Result<(Menu, MenuItem)> {
                 Code::Enter,
             ),
             &item("inspector", "Local Inspector", cmd, Code::KeyI),
-            &item("larger", "Increase Terminal Text", cmd, Code::Equal),
+            &larger,
             &item("smaller", "Decrease Terminal Text", cmd, Code::Minus),
             &item("reset-size", "Actual Text Size", cmd, Code::Digit0),
             &Native::fullscreen(None),
