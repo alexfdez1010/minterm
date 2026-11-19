@@ -60,18 +60,23 @@ pub fn remove(provider: Provider) -> Result<(), String> {
 }
 
 pub fn lookup(provider: Provider) -> Result<String, String> {
+    configured_key(provider)?.ok_or_else(|| {
+        format!(
+            "Save an API key in Minterm or set {} before launching.",
+            provider.env()
+        )
+    })
+}
+
+pub fn configured_key(provider: Provider) -> Result<Option<String>, String> {
     let saved = locked(&root()?, |root| {
         Ok(load(root)?.unwrap_or_default().entry(provider).take())
     })?;
-    let key = saved
+    saved
         .or_else(|| std::env::var(provider.env()).ok())
-        .ok_or_else(|| {
-            format!(
-                "Save an API key in Minterm or set {} before launching.",
-                provider.env()
-            )
-        })?;
-    Ok(valid_key(&key)?.to_owned())
+        .filter(|key| !key.trim().is_empty())
+        .map(|key| valid_key(&key).map(str::to_owned))
+        .transpose()
 }
 
 pub enum Source {

@@ -143,25 +143,6 @@
   outline: 2px solid var(--mint);
   outline-offset: 1px;
 }
-.summary-choice {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-height: 26px;
-  margin: 0;
-  font-weight: 400;
-  cursor: pointer;
-}
-.summary-choice input {
-  width: 15px;
-  height: 15px;
-  margin: 0;
-  padding: 0;
-  accent-color: var(--mint);
-}
-#agent-summary-options {
-  margin: var(--space-2) 0 0 23px;
-}
 .agent-dialog .hint {
   margin: var(--space-1) 0 0;
   line-height: 1.5;

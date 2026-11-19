@@ -9,27 +9,50 @@ const MAX_QUESTION_CHARS: usize = 8_000;
 const MAX_RESPONSE_BYTES: usize = 512 * 1024;
 const MAX_TOKENS: u32 = 2048;
 
+#[derive(Clone, Copy)]
+enum Purpose {
+    Question,
+    Activity,
+}
+
+pub enum SummarySource {
+    Managed(Provider),
+    Reviewed(Provider),
+}
+
 pub fn ask(provider: Provider, question: &str) -> Result<String, String> {
-    request(provider, question, INSTRUCTIONS, MAX_TOKENS)
+    let question = checked_input(question)?;
+    request(
+        provider,
+        question,
+        &credentials::lookup(provider)?,
+        Purpose::Question,
+    )
 }
 
-pub fn summarize(provider: Provider, excerpt: &str) -> Result<String, String> {
-    let answer = request(provider, excerpt, SUMMARY_INSTRUCTIONS, 512)?;
-    Ok(answer
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .chars()
-        .take(200)
-        .collect())
+pub fn summarize(source: SummarySource, excerpt: &str) -> Result<Option<String>, String> {
+    let (provider, key) = match source {
+        SummarySource::Managed(provider) => {
+            let Some(key) = credentials::configured_key(provider)? else {
+                return Ok(None);
+            };
+            (provider, key)
+        }
+        SummarySource::Reviewed(provider) => (provider, credentials::lookup(provider)?),
+    };
+    let answer = request(provider, checked_input(excerpt)?, &key, Purpose::Activity)?;
+    Ok(Some(
+        answer
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .chars()
+            .take(200)
+            .collect(),
+    ))
 }
 
-fn request(
-    provider: Provider,
-    question: &str,
-    instructions: &str,
-    tokens: u32,
-) -> Result<String, String> {
+fn checked_input(question: &str) -> Result<&str, String> {
     let question = question.trim();
     if question.is_empty() {
         return Err("Enter a question first.".into());
@@ -37,12 +60,20 @@ fn request(
     if question.chars().count() > MAX_QUESTION_CHARS {
         return Err("Use 8,000 characters or fewer.".into());
     }
-    let key = credentials::lookup(provider)?;
+    Ok(question)
+}
+
+fn request(
+    provider: Provider,
+    question: &str,
+    key: &str,
+    purpose: Purpose,
+) -> Result<String, String> {
     let (url, model_env, default_model) = match provider {
         Provider::OpenAi => (
             "https://api.openai.com/v1/responses",
             "MINTERM_AI_MODEL",
-            "gpt-5.4-mini",
+            "gpt-6-luna",
         ),
         Provider::Anthropic => (
             "https://api.anthropic.com/v1/messages",
@@ -50,16 +81,14 @@ fn request(
             "claude-haiku-5-5",
         ),
     };
-    let model = std::env::var(model_env)
-        .ok()
-        .filter(|s| !s.trim().is_empty());
-    let body = request_body(
-        provider,
-        question,
-        model.as_deref().unwrap_or(default_model),
-        instructions,
-        tokens,
-    );
+    let model = match purpose {
+        Purpose::Question => std::env::var(model_env)
+            .ok()
+            .filter(|s| !s.trim().is_empty()),
+        Purpose::Activity => None,
+    };
+    let model = model.as_deref().unwrap_or(default_model);
+    let body = request_body(provider, question, model, purpose);
 
     let mut request = Easy::new();
     let mut headers = List::new();
@@ -110,9 +139,9 @@ fn request(
     if !(200..300).contains(&status) {
         // API error bodies can echo credentials and submitted text.
         return Err(match status {
-            400 | 404 | 422 => format!(
-                "The provider rejected the request. Check the model in {model_env} (HTTP {status})."
-            ),
+            400 | 404 | 422 => {
+                format!("The provider rejected the request for {model} (HTTP {status}).")
+            }
             401 | 403 => {
                 "The provider rejected the API key. Check its permissions and billing.".into()
             }
@@ -138,14 +167,12 @@ fn network_error(error: curl::Error) -> String {
     }
 }
 
-fn request_body(
-    provider: Provider,
-    question: &str,
-    model: &str,
-    instructions: &str,
-    tokens: u32,
-) -> Value {
-    match provider {
+fn request_body(provider: Provider, question: &str, model: &str, purpose: Purpose) -> Value {
+    let (instructions, tokens) = match purpose {
+        Purpose::Question => (INSTRUCTIONS, MAX_TOKENS),
+        Purpose::Activity => (SUMMARY_INSTRUCTIONS, 512),
+    };
+    let mut body = match provider {
         Provider::OpenAi => json!({
             "model": model, "input": question, "instructions": instructions,
             "max_output_tokens": tokens, "store": false,
@@ -154,7 +181,14 @@ fn request_body(
             "model": model, "messages": [{"role":"user", "content":question}],
             "system": instructions, "max_tokens": tokens,
         }),
+    };
+    if let Purpose::Activity = purpose {
+        match provider {
+            Provider::OpenAi => body["reasoning"] = json!({"effort":"none"}),
+            Provider::Anthropic => body["output_config"] = json!({"effort":"low"}),
+        }
     }
+    body
 }
 
 fn answer_text(provider: Provider, value: &Value) -> Result<String, String> {
@@ -205,28 +239,36 @@ mod tests {
     #[test]
     fn request_contains_only_typed_input_and_fixed_instructions() {
         let question = "Explain \"$(pwd)\"\nwithout running it";
-        let openai = request_body(
-            Provider::OpenAi,
-            question,
-            "example",
-            INSTRUCTIONS,
-            MAX_TOKENS,
-        );
+        let openai = request_body(Provider::OpenAi, question, "example", Purpose::Question);
         assert_eq!(openai["input"], question);
         assert_eq!(openai["store"], false);
         assert!(openai.get("tools").is_none());
-        let anthropic = request_body(
-            Provider::Anthropic,
-            question,
-            "example",
-            INSTRUCTIONS,
-            MAX_TOKENS,
-        );
+        let anthropic = request_body(Provider::Anthropic, question, "example", Purpose::Question);
         assert_eq!(
             anthropic["messages"],
             json!([{"role":"user","content":question}])
         );
         assert!(anthropic.get("tools").is_none());
+    }
+
+    #[test]
+    fn activity_requests_use_short_answers_and_low_reasoning() {
+        let openai = request_body(
+            Provider::OpenAi,
+            "Running tests",
+            "gpt-6-luna",
+            Purpose::Activity,
+        );
+        assert_eq!(openai["reasoning"]["effort"], "none");
+        assert_eq!(openai["max_output_tokens"], 512);
+        let claude = request_body(
+            Provider::Anthropic,
+            "Running tests",
+            "claude-haiku-5-5",
+            Purpose::Activity,
+        );
+        assert_eq!(claude["output_config"]["effort"], "low");
+        assert_eq!(claude["max_tokens"], 512);
     }
 
     #[test]

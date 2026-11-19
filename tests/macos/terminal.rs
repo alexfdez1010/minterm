@@ -6,6 +6,8 @@ use std::{
     env,
     ffi::{CString, c_char, c_void},
     fs,
+    io::{BufRead, BufReader, Write},
+    net::TcpListener,
     os::unix::fs::PermissionsExt,
     path::Path,
     process::Command,
@@ -34,7 +36,7 @@ fn init_repository(dir: &Path, branch: &str) {
 
 // Model the Codex CLI boundary. A tool result and the final reply come from
 // distinct JSONL records, just as they do in a non-interactive Codex session.
-fn install_managed_codex(home: &Path) -> std::path::PathBuf {
+fn install_agent_fixtures(home: &Path) -> std::path::PathBuf {
     let bin = home.join(".local/bin");
     fs::create_dir_all(&bin).unwrap();
     let executable = bin.join("codex");
@@ -61,7 +63,38 @@ cat <<'JSONL'
 JSONL
 "#).unwrap();
     fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+    let claude = bin.join("claude");
+    fs::write(
+        &claude,
+        r#"#!/bin/sh
+set -eu
+cat > /dev/null
+cat <<'JSONL'
+{"type":"system","subtype":"init"}
+{"type":"assistant","message":{"content":[{"type":"text","text":"Read fixture status."}]}}
+{"type":"result","subtype":"success","is_error":false,"result":"Claude fixture complete."}
+JSONL
+"#,
+    )
+    .unwrap();
+    fs::set_permissions(claude, fs::Permissions::from_mode(0o700)).unwrap();
     bin
+}
+
+// Reject CONNECT locally, before TLS handshaking or transmitting any API data.
+fn reject_proxy_requests(proxy: &TcpListener, requests: &mut Vec<String>) {
+    while let Ok((mut stream, _)) = proxy.accept() {
+        stream.set_nonblocking(false).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let mut request = String::new();
+        BufReader::new(&stream).read_line(&mut request).unwrap();
+        requests.push(request.trim_end().to_owned());
+        stream
+            .write_all(b"HTTP/1.1 502 Test proxy\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+            .unwrap();
+    }
 }
 
 fn main() {
@@ -83,7 +116,10 @@ fn main() {
     let nested = workspace.join("nested");
     init_repository(&workspace, "main");
     init_repository(&nested, "agent/review");
-    let fixture_bin = install_managed_codex(&home);
+    let fixture_bin = install_agent_fixtures(&home);
+    let proxy = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    proxy.set_nonblocking(true).unwrap();
+    let mut requests = Vec::new();
     fs::create_dir(workspace.join("bin")).unwrap();
     // macOS may reject a renamed copy of a signed system executable.
     let fixture = home.join("fixture.c");
@@ -115,6 +151,11 @@ int main(void) {
         .env("HOME", &home)
         .env("SHELL", "/bin/bash")
         .env("LANG", "en_US.UTF-8")
+        .env("ANTHROPIC_API_KEY", "fixture-not-a-real-key")
+        .env(
+            "https_proxy",
+            format!("http://{}", proxy.local_addr().unwrap()),
+        )
         .env(
             "PATH",
             format!("{}:/usr/bin:/bin:/usr/sbin:/sbin", fixture_bin.display()),
@@ -129,6 +170,7 @@ int main(void) {
         .unwrap();
     let deadline = Instant::now() + Duration::from_secs(45);
     loop {
+        reject_proxy_requests(&proxy, &mut requests);
         if let Some(status) = app.try_wait().unwrap() {
             assert!(status.success(), "Window test exited with {status}");
             break;
@@ -144,6 +186,7 @@ int main(void) {
         home.join("smoke-passed").is_file(),
         "Window test did not finish"
     );
+    assert_eq!(requests, ["CONNECT api.anthropic.com:443 HTTP/1.1"]);
     assert_eq!(
         fs::read_to_string(nested.join("tested-cwd"))
             .unwrap()

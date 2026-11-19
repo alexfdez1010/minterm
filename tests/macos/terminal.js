@@ -120,23 +120,27 @@ try {
   await key(28, '8', command);
   await expect('Idle shell selected for launch', () => selected() === tabs()[7]);
   const sourceTab = selected(), beforeLaunch = tabs().length;
+  const summaries = new Map(), receiveWithSummary = window.minterm.receive;
+  window.minterm.receive = (name, data) => {
+    if (name === 'summary') summaries.set(data.id, data);
+    receiveWithSummary(name, data);
+  };
   $('#start-agent').click();
   await expect('Agent launcher opened', () => $('#agent-launch').open);
+  await expect('Launch has no summary opt-in or provider selector', () =>
+    !$('#agent-launch input[type="checkbox"]') && !$('#agent-launch select'));
   const task = $('#agent-prompt');
   task.value = 'Review fixture changes\nDescribe `git status` literally.';
   task.dispatchEvent(new Event('input', {bubbles:true}));
-  await expect('Automatic summaries require opting in', () => !$('#agent-opt-in').checked);
-  $('#agent-opt-in').click();
-  $('#agent-summary-provider').value = 'openai';
-  $('#agent-summary-provider').dispatchEvent(new Event('change', {bubbles:true}));
   $('#agent-submit').click();
   await expect('Managed tab has a task title', () => tabs().length === beforeLaunch + 1 &&
     selected().textContent.includes('Review fixture changes'));
   const managedTab = selected(), managed = activeTerminal();
   const managedRow = () => [...document.querySelectorAll('#agents li')]
     .find(row => row.textContent.includes('Review fixture changes'));
-  await expect('Local tool step survives the automatic summary failure', () =>
-    managedRow()?.querySelector('.agent-summary-text.error')?.textContent.includes('OPEN_API_KEY') &&
+  const codexId = Number(managedTab.id.slice('tab-'.length));
+  await expect('Codex silently skips summaries without its own key', () =>
+    summaries.get(codexId)?.skipped === true && managedRow()?.querySelector('.agent-summary-text')?.hidden &&
     managedRow()?.querySelector('.agent-detail')?.textContent === 'Running a command' &&
     managedRow()?.querySelector('.agent-status')?.dataset.state === 'running');
   await key(28, '8', command);
@@ -158,6 +162,21 @@ try {
   $('#question').dispatchEvent(new Event('input', {bubbles: true}));
   $('#ask').click();
   await expect('Missing key is actionable', () => !$('#reply').hidden && $('#answer').textContent.includes('OPEN_API_KEY'));
+  await key(34, 'i', command);
+  await expect('Inspector available for Claude', () => !$('#inspect-panel').hidden);
+  $('#start-agent').click();
+  await expect('Claude launcher opened', () => $('#agent-launch').open);
+  $('#agent-launch input[value="claude"]').click();
+  task.value = 'Read routing fixture';
+  task.dispatchEvent(new Event('input', {bubbles:true}));
+  $('#agent-submit').click();
+  await expect('Claude task opens', () => selected().textContent.includes('Read routing fixture'));
+  const claudeId = Number(selected().id.slice('tab-'.length));
+  // Only Anthropic is configured. The local proxy records its host and rejects
+  // the test request. Rust checks that no other connection was attempted.
+  await expect('Claude automatically attempts a summary with its own key', () =>
+    Boolean(summaries.get(claudeId)?.error) && !summaries.get(claudeId).skipped);
+  window.minterm.receive = receiveWithSummary;
   return 'passed';
 } catch (err) {
   return String(err) + '\n' + err.stack;

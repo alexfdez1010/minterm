@@ -52,20 +52,9 @@ export function initAgents(select, label, launch, preview, summarize) {
   const launcher = $("agent-launch");
   const form = $("agent-launch-form");
   const task = $("agent-prompt");
-  const optIn = $("agent-opt-in");
-  const provider = $("agent-summary-provider");
-  function updateSharing() {
-    $("agent-summary-options").hidden = !optIn.checked;
-    $("agent-sharing").textContent =
-      "Sends the task and activity labels to " + provider.selectedOptions[0].text + ".";
-  }
-  optIn.onchange = updateSharing;
-  provider.onchange = updateSharing;
   $("start-agent").onclick = () => {
     form.reset();
-    provider.value = $("provider").value;
     $("agent-submit").disabled = true;
-    updateSharing();
     launcher.showModal();
     task.focus();
   };
@@ -79,11 +68,7 @@ export function initAgents(select, label, launch, preview, summarize) {
     () => {
       const prompt = task.value.trim();
       task.value = "";
-      launch({
-        agent: form.elements.agent.value,
-        prompt,
-        summaryProvider: optIn.checked ? provider.value : null,
-      });
+      launch({ agent: form.elements.agent.value, prompt });
     },
   );
   bindDialog(

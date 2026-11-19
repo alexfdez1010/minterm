@@ -79,7 +79,7 @@ export class Activity {
     }
   }
 
-  start(id, { agent, prompt, summaryProvider }) {
+  start(id, { agent, prompt }) {
     this.jobs.set(id, {
       id,
       name: agent === "claude" ? "Claude Code" : "Codex",
@@ -89,7 +89,6 @@ export class Activity {
       foreground: true,
       state: "running",
       detail: "Starting",
-      provider: summaryProvider,
       requests: 0,
       nextRequest: 0,
       steps: [],
@@ -106,23 +105,28 @@ export class Activity {
       job.steps.push(detail);
       if (job.steps.length > 4) job.steps.shift();
     }
-    if (job.provider && job.steps.length && job.requestedDetail !== detail)
-      this.scheduleSummary(job);
+    this.scheduleSummary(job);
     this.publish();
   }
 
   scheduleSummary(job) {
-    if (job.timer || job.requests >= MAX_SUMMARIES || this.summaries.get(job.id)?.pending) return;
+    if (
+      job.timer ||
+      !job.steps.length ||
+      job.requestedDetail === job.detail ||
+      job.requests >= MAX_SUMMARIES ||
+      this.summaries.get(job.id)?.pending
+    ) {
+      return;
+    }
     job.timer = setTimeout(
       () => {
         job.timer = undefined;
-        if (!job.provider || !this.jobs.has(job.id)) return;
-        job.requests++;
+        if (!this.jobs.has(job.id) || job.requestedDetail === job.detail) return;
         job.nextRequest = Date.now() + SUMMARY_INTERVAL;
         job.requestedDetail = job.detail;
         this.summarize({
           id: job.id,
-          provider: job.provider,
           excerpt: JSON.stringify({ task: job.prompt, recentSteps: job.steps, state: job.state }),
         });
       },
@@ -134,17 +138,27 @@ export class Activity {
     const previous = this.summaries.get(id);
     if (previous?.pending || !excerpt.trim()) return;
     const revision = ++this.revision;
-    this.summaries.set(id, { revision, pending: true });
+    this.summaries.set(id, { revision, pending: true, text: previous?.text });
+    // Managed jobs omit provider. The native host resolves the CLI's matching
+    // provider and checks its key before any network request.
     send("summarize", { id, provider, excerpt, revision });
     this.publish();
   }
 
-  receiveSummary({ id, revision, text, error }) {
-    if (this.summaries.get(id)?.revision !== revision) return;
-    this.summaries.set(id, { revision, text, error, pending: false });
+  receiveSummary({ id, revision, text, error, skipped }) {
+    const previous = this.summaries.get(id);
+    if (!previous?.pending || previous.revision !== revision) return;
+    this.summaries.set(id, {
+      revision,
+      text: text || previous.text,
+      error: skipped ? undefined : error,
+      pending: false,
+    });
     const job = this.jobs.get(id);
-    if (job && error) job.provider = null;
-    if (job?.provider && job.requestedDetail !== job.detail) this.scheduleSummary(job);
+    if (job) {
+      if (!skipped) job.requests++;
+      this.scheduleSummary(job);
+    }
     this.publish();
   }
 
@@ -181,7 +195,7 @@ export class Activity {
           title: agent.title,
           summary: result?.text,
           summaryError: result?.error,
-          summaryPending: result?.pending,
+          summaryPending: !agent.managed && result?.pending,
         };
       });
     this.render(rows);

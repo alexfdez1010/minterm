@@ -50,7 +50,7 @@ Open **Agents** with ⌘⇧A. The **+** beside the section starts an installed, 
 
 The inspector shows activity from the CLI’s structured events, including reading files, running commands and writing a response. The tab retains the final output. A permission or usage limit appears as **Needs attention** when the CLI reports a blocker. For interactive agents you started in a shell, **Input requested** identifies recognizable confirmation prompts near the cursor. Select the row to answer in that shell. An unfamiliar prompt may remain marked as running.
 
-For a managed session, enable **Summarize activity with AI** at launch to share the task and activity labels with the selected provider. Each run requests at most four summaries, with at least 30 seconds between requests. In an interactive session, use the summary button on its row to review and edit the terminal excerpt before sending it. Both flows use the keys in Minterm Settings. The CLIs use their own authentication.
+When you start a session from Minterm, Codex uses GPT-6 Luna for activity summaries if you have an OpenAI key. Claude Code uses Claude Haiku 5.5 if you have an Anthropic key. The provider receives the task, recent activity labels and run state. Without the matching key, the inspector shows local activity. Each run requests at most four summaries, at least 30 seconds apart. For agents started in a shell, the summary button lets you review and edit the excerpt before sending it. The CLIs use their own authentication.
 
 ## Assistant and API keys
 
@@ -61,7 +61,7 @@ minterm key set openai
 minterm key set anthropic
 ```
 
-Open the assistant with ⌘J, choose a provider and type a question. Minterm sends the text you submit and displays the reply as plain text. It leaves command execution to you. To use an environment key, set `OPEN_API_KEY` or `ANTHROPIC_API_KEY` in the process that launches Minterm. A saved key takes priority. The model can be overridden with `MINTERM_AI_MODEL` for OpenAI or `MINTERM_ANTHROPIC_MODEL` for Anthropic.
+Open the assistant with ⌘J, choose a provider and type a question. Minterm sends the text you submit and displays the reply as plain text. It leaves command execution to you. To use an environment key, set `OPEN_API_KEY` or `ANTHROPIC_API_KEY` in the process that launches Minterm. A saved key takes priority. The assistant’s question-answering model can be overridden with `MINTERM_AI_MODEL` for OpenAI or `MINTERM_ANTHROPIC_MODEL` for Anthropic.
 
 Keys persist under `~/Library/Application Support/Minterm`. Minterm uses XChaCha20-Poly1305 and re-encrypts the store with a new random key each time the app launches. The store and master key have owner-only permissions. A process that can read both files can recover the API keys. To clear a stored key from the shell, use `minterm key remove openai` or `minterm key remove anthropic`.
 

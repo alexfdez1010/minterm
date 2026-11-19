@@ -1,5 +1,6 @@
 mod events;
 
+use crate::credentials::Provider;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use events::{STARTING, Step, Stream};
 use std::{
@@ -50,6 +51,7 @@ pub struct Jobs {
     notify: Notify,
 }
 struct Job {
+    provider: Provider,
     control: Arc<Control>,
     wake: UnixStream,
     worker: JoinHandle<()>,
@@ -72,9 +74,10 @@ impl Jobs {
     }
 
     pub fn start(&mut self, id: u32, agent: &str, cwd: &Path, prompt: &str) -> Result<(), String> {
-        let (name, args): (_, &[&str]) = match agent {
-            "codex" => ("Codex", &["exec", "--json", "-"]),
+        let (provider, name, args): (_, _, &[&str]) = match agent {
+            "codex" => (Provider::OpenAi, "Codex", &["exec", "--json", "-"]),
             "claude" => (
+                Provider::Anthropic,
                 "Claude Code",
                 &["-p", "--verbose", "--output-format", "stream-json"],
             ),
@@ -101,7 +104,7 @@ impl Jobs {
         if let Ok(path) = env::join_paths(dirs) {
             command.env("PATH", path);
         }
-        self.spawn(id, command, agent == "claude", prompt)
+        self.spawn(id, command, provider, prompt)
             .map_err(|e| format!("Could not start {name}: {e}"))
     }
 
@@ -109,7 +112,7 @@ impl Jobs {
         &mut self,
         id: u32,
         mut command: Command,
-        claude: bool,
+        provider: Provider,
         prompt: &str,
     ) -> io::Result<()> {
         let (wake, signal) = UnixStream::pair()?;
@@ -145,7 +148,7 @@ impl Jobs {
                     &mut process,
                     &signal,
                     &prompt,
-                    claude,
+                    provider == Provider::Anthropic,
                     &mut stream,
                     &mut reporter,
                 );
@@ -179,6 +182,7 @@ impl Jobs {
         self.jobs.insert(
             id,
             Job {
+                provider,
                 control,
                 wake,
                 worker,
@@ -189,6 +193,9 @@ impl Jobs {
 
     pub fn contains(&self, id: u32) -> bool {
         self.jobs.contains_key(&id)
+    }
+    pub fn provider(&self, id: u32) -> Option<Provider> {
+        self.jobs.get(&id).map(|job| job.provider)
     }
     pub fn running(&self, id: u32) -> bool {
         self.jobs
@@ -716,7 +723,7 @@ mod tests {
         "#,
         );
         let (mut jobs, rx) = harness();
-        jobs.spawn(7, command, false, prompt).unwrap();
+        jobs.spawn(7, command, Provider::OpenAi, prompt).unwrap();
         let (text, state, _) = transcript(&jobs, &rx);
         assert_eq!(text, "Line one\r\nLine two [redacted]\r\n\r\n");
         assert_eq!(state, "completed");
@@ -741,7 +748,7 @@ mod tests {
             echo '{"type":"result","subtype":"success","is_error":false,"result":"Hello","permission_denials":[]}'
         "#,
         );
-        jobs.spawn(1, command, true, "task").unwrap();
+        jobs.spawn(1, command, Provider::Anthropic, "task").unwrap();
         let (text, state, _) = transcript(&jobs, &rx);
         assert_eq!(text, "Hello\r\n\r\n");
         assert_eq!(state, "completed");
@@ -750,7 +757,7 @@ mod tests {
             tmp.path(),
             r#"cat >/dev/null; echo '{"type":"result","subtype":"error_during_execution","is_error":true,"permission_denials":[{"tool_input":"private"}]}'"#,
         );
-        jobs.spawn(2, command, true, "task").unwrap();
+        jobs.spawn(2, command, Provider::Anthropic, "task").unwrap();
         let (text, state, _) = transcript(&jobs, &rx);
         assert_eq!(state, "blocked");
         assert!(text.contains("Permission denied"));
@@ -759,7 +766,7 @@ mod tests {
             tmp.path(),
             "cat >/dev/null; echo 'Not authenticated: very-private-data' >&2; exit 2",
         );
-        jobs.spawn(3, command, false, "task").unwrap();
+        jobs.spawn(3, command, Provider::OpenAi, "task").unwrap();
         let (text, state, status) = transcript(&jobs, &rx);
         assert_eq!(state, "failed");
         assert!(status.contains("Sign in"));
@@ -781,7 +788,7 @@ mod tests {
         "#,
         );
         let (mut jobs, rx) = harness();
-        jobs.spawn(9, command, false, "task").unwrap();
+        jobs.spawn(9, command, Provider::OpenAi, "task").unwrap();
         let mut n = 0;
         while n < WINDOW {
             if matches!(

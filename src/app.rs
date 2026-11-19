@@ -68,7 +68,7 @@ pub enum Action {
     },
     Summarize {
         id: u32,
-        provider: Provider,
+        provider: Option<Provider>,
         excerpt: String,
         revision: u32,
     },
@@ -217,13 +217,19 @@ impl App {
                 if !self.last_dirs.contains_key(&id) {
                     return;
                 }
+                let source = match (self.jobs.provider(id), provider) {
+                    (Some(provider), None) => assistant::SummarySource::Managed(provider),
+                    (None, Some(provider)) => assistant::SummarySource::Reviewed(provider),
+                    _ => return,
+                };
                 if !self.summaries.insert(id) {
                     self.emit("summary", json!({"id":id,"revision":revision,"error":"Another summary is in progress."}));
                     return;
                 }
                 self.worker(move || {
-                    let value = match assistant::summarize(provider, &excerpt) {
-                        Ok(text) => json!({"id":id,"revision":revision,"text":text}),
+                    let value = match assistant::summarize(source, &excerpt) {
+                        Ok(Some(text)) => json!({"id":id,"revision":revision,"text":text}),
+                        Ok(None) => json!({"id":id,"revision":revision,"skipped":true}),
                         Err(error) => json!({"id":id,"revision":revision,"error":error}),
                     };
                     Message::Summary(id, value)
