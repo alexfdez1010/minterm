@@ -1,5 +1,5 @@
 export const $ = (id) => document.getElementById(id);
-export const agentNames = {
+const agentNames = {
   codex: "Codex",
   claude: "Claude Code",
   opencode: "OpenCode",

@@ -1173,6 +1173,7 @@ dependencies = [
  "portable-pty",
  "serde",
  "serde_json",
+ "shell-words",
  "tao",
  "tempfile",
  "toml_edit 0.25.19+spec-1.1.0",

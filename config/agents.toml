@@ -1,5 +1,20 @@
-# Set a default to use it for an empty prompt or a task without a command name.
-# default = "sol-light"
+version = 2
+default = "codex"
+
+[[commands]]
+name = "codex"
+agent = "codex"
+command = "codex"
+
+[[commands]]
+name = "claude"
+agent = "claude"
+command = "claude"
+
+[[commands]]
+name = "opencode"
+agent = "opencode"
+command = "opencode"
 
 [[commands]]
 name = "ocq"

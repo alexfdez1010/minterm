@@ -3,6 +3,10 @@
 // The caller synchronously returns updated preferences to minterm_settings_reload.
 extern void minterm_refresh_settings(void);
 
+static NSSize paneSize(NSString *identifier) {
+    return [identifier isEqual:@"Commands"] ? NSMakeSize(812, 320) : NSMakeSize(480, 176);
+}
+
 @interface MTSettingsController : NSObject <NSWindowDelegate, NSTabViewDelegate>
 @property(nonatomic, strong) NSWindow *window;
 @property(nonatomic, strong) MTPreferencesPane *preferences;
@@ -12,19 +16,19 @@ extern void minterm_refresh_settings(void);
 @implementation MTSettingsController
 - (instancetype)initWithChange:(MTChangePreference)change {
     if (!(self = [super init])) return nil;
-    _window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 540, 276)
+    NSRect initial = {NSZeroPoint, paneSize(@"General")};
+    _window = [[NSWindow alloc] initWithContentRect:initial
         styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
         backing:NSBackingStoreBuffered defer:NO];
     _window.title = @"Minterm Settings";
     _window.releasedWhenClosed = NO;
     _window.restorable = NO;
     _window.delegate = self;
-    [_window center];
 
     _preferences = [[MTPreferencesPane alloc] initWithChange:change];
     _tabs = [[NSTabView alloc] initWithFrame:NSInsetRect(_window.contentView.bounds, 12, 12)];
     _tabs.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-    for (NSArray *entry in @[@[@"General", _preferences.generalView], @[@"Commands", _preferences.commandsView], @[@"Codex", _preferences.codexView]]) {
+    for (NSArray *entry in @[@[@"General", _preferences.generalView], @[@"Commands", _preferences.commandsView]]) {
         NSTabViewItem *item = [[NSTabViewItem alloc] initWithIdentifier:entry[0]];
         item.label = entry[0];
         item.view = entry[1];
@@ -46,12 +50,28 @@ extern void minterm_refresh_settings(void);
     [self.preferences stopRecording];
 }
 
-- (void)tabView:(NSTabView *)tabView didSelectTabViewItem:(NSTabViewItem *)item {
-    [self.preferences stopRecording];
-    if ([item.identifier isEqual:@"Codex"]) [self.preferences refreshModels];
+- (void)positionPane:(NSString *)identifier relativeTo:(NSWindow *)anchor {
+    NSScreen *screen = anchor.screen ?: NSScreen.mainScreen;
+    NSRect visible = screen.visibleFrame;
+    NSRect content = {NSZeroPoint, paneSize(identifier)};
+    NSRect frame = [self.window frameRectForContentRect:content];
+    frame.size.width = MIN(NSWidth(frame), NSWidth(visible));
+    frame.size.height = MIN(NSHeight(frame), NSHeight(visible));
+    frame.origin.x = MIN(MAX(round(NSMidX(anchor.frame) - NSWidth(frame) / 2), NSMinX(visible)),
+                         NSMaxX(visible) - NSWidth(frame));
+    frame.origin.y = MIN(MAX(round(NSMidY(anchor.frame) - NSHeight(frame) / 2), NSMinY(visible)),
+                         NSMaxY(visible) - NSHeight(frame));
+    [self.window setFrame:frame display:self.window.isVisible];
 }
 
-- (void)show:(NSDictionary *)prefs {
+- (void)tabView:(NSTabView *)tabView didSelectTabViewItem:(NSTabViewItem *)item {
+    [self.preferences stopRecording];
+    if (self.window.isVisible) [self positionPane:item.identifier relativeTo:self.window];
+}
+
+- (void)show:(NSDictionary *)prefs forTerminal:(NSWindow *)terminal {
+    if (!self.window.isVisible)
+        [self positionPane:self.tabs.selectedTabViewItem.identifier relativeTo:terminal];
     [self.preferences reload:prefs];
     [self.window makeKeyAndOrderFront:nil];
 }
@@ -59,10 +79,10 @@ extern void minterm_refresh_settings(void);
 
 static MTSettingsController *controller;
 
-void minterm_settings_show(const char *prefs, MTChangePreference change) {
+void minterm_settings_show(NSWindow *terminal, const char *prefs, MTChangePreference change) {
     if (!controller) controller = [[MTSettingsController alloc] initWithChange:change];
     NSDictionary *values = [NSJSONSerialization JSONObjectWithData:[@(prefs) dataUsingEncoding:NSUTF8StringEncoding] options:0 error:NULL];
-    [controller show:values];
+    [controller show:values forTerminal:terminal];
 }
 
 bool minterm_settings_close_if_key(void) {

@@ -13,7 +13,7 @@
       didReceiveScriptMessage:(WKScriptMessage *)message
                  replyHandler:(void (^)(id, NSString *))reply {
     NSDictionary *key = message.body;
-    if (key[@"preferences"]) { qa_preferences(key[@"preferences"], reply); return; }
+    if (key[@"preferences"]) { qa_preferences(self.window, key[@"preferences"], reply); return; }
     if (key[@"menuItem"]) {
         NSMenu *menu = [NSApp.mainMenu itemWithTitle:@"Shell"].submenu;
         NSInteger index = [menu indexOfItemWithTitle:key[@"menuItem"]];

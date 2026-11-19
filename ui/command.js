@@ -1,4 +1,4 @@
-import { $, agentLabel, agentNames, send } from "./shared.js";
+import { $, agentLabel, send } from "./shared.js";
 
 // Locate the prompt in terminal cells, including wide glyphs and soft wraps.
 // Custom prompts without a recognizable terminator keep the real cursor as their anchor.
@@ -147,7 +147,7 @@ export class CommandMode {
   }
 
   canLaunch(agent) {
-    if (!this.error && (Object.hasOwn(agentNames, agent) || this.profiles.has(agent))) return true;
+    if (!this.error && this.profiles.has(agent)) return true;
     this.notice(this.error || "Agent command unavailable. Check Settings.");
     return false;
   }

@@ -1,4 +1,4 @@
-import { $, agentNames, element, icon } from "./shared.js";
+import { $, agentLabel, element, icon } from "./shared.js";
 
 const states = {
   running: "Running",
@@ -14,11 +14,11 @@ let selectSession, tabLabel, choiceEdited;
 export function setAgentChoices(commands, preferred, error) {
   const field = $("agent-choice");
   const selected = $("agent-launch").open && choiceEdited ? field.value : preferred;
-  const choices = [...Object.entries(agentNames), ...commands.map(({ name }) => [name, name])];
-  field.replaceChildren(...choices.map(([value, label]) => new Option(label, value)));
+  field.replaceChildren(...commands.map(({ name }) => new Option(agentLabel(name), name)));
   field.value = selected;
   field.setCustomValidity(error || "");
   $("agent-submit").disabled = !field.value;
+  if (error && $("agent-launch").open) field.reportValidity();
 }
 
 export function initAgents(select, label, launch, preferredAgent, refreshPreferences) {

@@ -11,10 +11,12 @@ static NSView *qa_setting(NSView *view, NSString *label) {
 // Drive the same table selection, sheet fields and buttons used in Settings.
 static void qa_commands(NSWindow *window, NSDictionary *request, void (^reply)(id, NSString *)) {
     NSString *action = request[@"action"];
-    NSTableView *table = (NSTableView *)qa_setting(window.contentView, @"Custom commands");
+    NSTableView *table = (NSTableView *)qa_setting(window.contentView, @"Agent commands");
     if (!table) { reply(nil, @"Missing commands list"); return; }
     NSMutableArray *commands = [NSMutableArray array];
-    NSInteger selected = -1;
+    NSInteger selected = -1, defaults = 0;
+    NSString *defaultName = @"";
+    NSDictionary *ids = @{@"Codex": @"codex", @"Claude Code": @"claude", @"OpenCode": @"opencode"};
     NSString *target = request[@"original"] ?: request[@"name"];
     for (NSInteger row = 0; row < table.numberOfRows; row++) {
         NSMutableDictionary *entry = [NSMutableDictionary dictionary];
@@ -22,16 +24,28 @@ static void qa_commands(NSWindow *window, NSDictionary *request, void (^reply)(i
             id value = [table.dataSource tableView:table objectValueForTableColumn:column row:row];
             entry[column.identifier] = value;
         }
-        entry[@"agent"] = @{@"Codex":@"codex", @"Claude Code":@"claude", @"OpenCode":@"opencode"}[entry[@"agent"]];
+        entry[@"title"] = entry[@"name"];
+        entry[@"name"] = ids[entry[@"title"]] ?: entry[@"title"];
+        entry[@"agent"] = ids[entry[@"agent"]] ?: @"";
+        if ([entry[@"default"] isEqual:@"✓"]) {
+            defaultName = entry[@"name"];
+            defaults++;
+        }
         if ([entry[@"name"] isEqual:target]) selected = row;
         [commands addObject:entry];
     }
-    if ([action isEqual:@"state"]) { reply(@{@"commands": commands}, nil); return; }
+    if ([action isEqual:@"state"]) { reply(@{@"commands": commands, @"defaultName": defaultName, @"defaultCount": @(defaults)}, nil); return; }
     BOOL adding = [action isEqual:@"addCommand"], removing = [action isEqual:@"removeCommand"];
-    if (!(adding || removing || [action isEqual:@"editCommand"])) { reply(nil, @"Unknown commands action"); return; }
+    BOOL reading = [action isEqual:@"readCommand"], setDefault = [action isEqual:@"default"];
+    if (!(adding || removing || reading || setDefault || [action isEqual:@"editCommand"])) { reply(nil, @"Unknown commands action"); return; }
     if (!adding) {
         if (selected < 0) { reply(nil, @"Command missing from Settings list"); return; }
         [table selectRowIndexes:[NSIndexSet indexSetWithIndex:selected] byExtendingSelection:NO];
+    }
+    if (setDefault) {
+        [(NSButton *)qa_setting(window.contentView, @"Set as Default") performClick:nil];
+        reply(@YES, nil);
+        return;
     }
     NSString *label = adding ? @"Add command" : removing ? @"Remove command" : @"Edit command";
     [(NSButton *)qa_setting(window.contentView, label) performClick:nil];
@@ -42,6 +56,13 @@ static void qa_commands(NSWindow *window, NSDictionary *request, void (^reply)(i
         NSPopUpButton *agent = (NSPopUpButton *)qa_setting(sheet.contentView, @"Base agent");
         NSTextField *shortcut = (NSTextField *)qa_setting(sheet.contentView, @"Command shortcut");
         if (!name || !command || !agent || !shortcut) { reply(nil, @"Missing command sheet"); return; }
+        if (reading) {
+            NSDictionary *fields = @{@"name": name.stringValue, @"agent": agent.selectedItem.representedObject,
+                                     @"command": command.stringValue, @"shortcut": shortcut.stringValue};
+            [(NSButton *)qa_setting(sheet.contentView, @"Cancel") performClick:nil];
+            reply(fields, nil);
+            return;
+        }
         if (request[@"name"]) name.stringValue = request[@"name"];
         if (request[@"command"]) command.stringValue = request[@"command"];
         if (request[@"shortcut"]) shortcut.stringValue = request[@"shortcut"];
@@ -57,10 +78,12 @@ static void qa_commands(NSWindow *window, NSDictionary *request, void (^reply)(i
     reply(@YES, nil);
 }
 
-static void qa_preferences(NSDictionary *request, void (^reply)(id, NSString *)) {
+static void qa_preferences(NSWindow *terminal, NSDictionary *request, void (^reply)(id, NSString *)) {
     NSString *action = request[@"action"];
     if ([action isEqual:@"prepare"]) {
-        // The window is centered during construction, before it is ordered front.
+        NSRect screen = terminal.screen.visibleFrame;
+        [terminal setFrameOrigin:NSMakePoint(NSMinX(screen) + 40, round(NSMidY(screen) - NSHeight(terminal.frame)/2))];
+        // Keep Settings invisible as the app positions it before ordering it front.
         [NSNotificationCenter.defaultCenter addObserverForName:NSWindowDidMoveNotification
             object:nil queue:nil usingBlock:^(NSNotification *note) {
                 NSWindow *window = note.object;
@@ -105,59 +128,26 @@ static void qa_preferences(NSDictionary *request, void (^reply)(id, NSString *))
         qa_commands(window, request, reply);
         return;
     }
-    if ([panes.selectedTabViewItem.identifier isEqual:@"Codex"]) {
-        NSComboBox *model = (NSComboBox *)qa_setting(window.contentView, @"Ollama model");
-        NSPopUpButton *backend = (NSPopUpButton *)qa_setting(window.contentView, @"Codex backend");
-        if (!model || !backend) { reply(nil, @"Missing Codex backend controls"); return; }
-        if ([action isEqual:@"state"]) {
-            reply(@{@"model": model.stringValue, @"models": model.objectValues,
-                    @"backend": backend.titleOfSelectedItem, @"enabled": @(model.enabled)}, nil);
-            return;
-        }
-        if ([action isEqual:@"backend"]) {
-            [backend selectItemWithTitle:request[@"value"]];
-            [backend sendAction:backend.action to:backend.target];
-        } else if ([action isEqual:@"refresh"]) {
-            NSButton *refresh = (NSButton *)qa_setting(window.contentView, @"Refresh");
-            if (!refresh) { reply(nil, @"Missing Refresh button"); return; }
-            [refresh performClick:nil];
-        } else if ([action isEqual:@"selectModel"]) {
-            NSInteger index = [request[@"index"] integerValue];
-            if (index < 0 || index >= model.numberOfItems) { reply(nil, @"Missing model"); return; }
-            [model selectItemAtIndex:index];
-        } else {
-            reply(nil, @"Unknown model picker test action");
-            return;
-        }
-        reply(@YES, nil);
-        return;
-    }
     NSPopUpButton *mode = (NSPopUpButton *)qa_setting(window.contentView, @"New tabs");
-    NSPopUpButton *agent = (NSPopUpButton *)qa_setting(window.contentView, @"Agent command");
     NSButton *shortcut = (NSButton *)qa_setting(window.contentView, @"Record switch mode shortcut");
-    NSTextField *executable = (NSTextField *)qa_setting(window.contentView, @"Executable");
-    if (!mode || !agent || !shortcut) {
+    if (!mode || !shortcut) {
         reply(nil, @"General pane is missing a control");
         return;
     }
     if ([action isEqual:@"state"]) {
-        reply(@{@"mode": mode.titleOfSelectedItem, @"agent": agent.titleOfSelectedItem,
-                @"shortcut": shortcut.title, @"agents": agent.itemTitles,
-                @"executable": executable.stringValue ?: @"",
+        NSRect available = terminal.screen.visibleFrame;
+        CGFloat x = MIN(MAX(NSMidX(terminal.frame) - NSWidth(window.frame)/2, NSMinX(available)), NSMaxX(available) - NSWidth(window.frame));
+        CGFloat y = MIN(MAX(NSMidY(terminal.frame) - NSHeight(window.frame)/2, NSMinY(available)), NSMaxY(available) - NSHeight(window.frame));
+        BOOL centered = fabs(NSMinX(window.frame) - x) <= 1 && fabs(NSMinY(window.frame) - y) <= 1;
+        reply(@{@"mode": mode.titleOfSelectedItem, @"shortcut": shortcut.title, @"centered": @(centered),
                 @"panes": [panes.tabViewItems valueForKey:@"label"]}, nil);
         return;
     }
-    if ([action isEqual:@"mode"] || [action isEqual:@"agent"]) {
-        NSPopUpButton *popup = [action isEqual:@"mode"] ? mode : agent;
+    if ([action isEqual:@"mode"]) {
         NSString *item = request[@"value"];
-        if (!item || [popup indexOfItemWithTitle:item] < 0) { reply(nil, @"Unknown Settings option"); return; }
-        [popup selectItemWithTitle:item];
-        [popup sendAction:popup.action to:popup.target];
-    } else if ([action isEqual:@"draftExecutable"]) {
-        if (!executable || ![window makeFirstResponder:executable]) { reply(nil, @"Executable field unavailable"); return; }
-        NSTextView *editor = (NSTextView *)executable.currentEditor;
-        [editor selectAll:nil];
-        [editor insertText:request[@"value"] replacementRange:editor.selectedRange];
+        if (!item || [mode indexOfItemWithTitle:item] < 0) { reply(nil, @"Unknown tab mode"); return; }
+        [mode selectItemWithTitle:item];
+        [mode sendAction:mode.action to:mode.target];
     } else if ([action isEqual:@"record"]) {
         [shortcut performClick:nil];
     } else if ([action isEqual:@"key"]) {

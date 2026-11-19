@@ -1,11 +1,8 @@
-#import <AppKit/AppKit.h>
-
-void MTAddBuiltInAgents(NSPopUpButton *popup);
-NSString *MTAgentTitle(NSString *agent);
+#import "preferences.h"
 
 @interface MTAgentCommands : NSObject <NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate>
 @property(nonatomic, readonly) NSView *view;
-- (instancetype)initWithSave:(NSString *(^)(NSDictionary *edit))save reveal:(NSString *(^)(void))reveal;
-- (void)reload:(NSArray<NSDictionary *> *)commands error:(NSString *)error;
+- (instancetype)initWithChange:(MTChangePreference)change;
+- (void)reload:(NSArray<NSDictionary *> *)commands defaultName:(NSString *)name error:(NSString *)error;
 - (BOOL)cancelEditor;
 @end

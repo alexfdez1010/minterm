@@ -1,12 +1,12 @@
 use crate::{app::Message, preferences};
 use std::{
     cell::OnceCell,
-    ffi::{CStr, CString, c_char},
+    ffi::{CStr, CString, c_char, c_void},
 };
-use tao::event_loop::EventLoopProxy;
+use tao::{event_loop::EventLoopProxy, platform::macos::WindowExtMacOS, window::Window};
 
 unsafe extern "C" {
-    fn minterm_settings_show(prefs: *const c_char, change: Change);
+    fn minterm_settings_show(terminal: *mut c_void, prefs: *const c_char, change: Change);
     fn minterm_settings_reload(prefs: *const c_char);
     fn minterm_reveal_agent_commands(path: *const c_char);
     fn minterm_settings_close_if_key() -> bool;
@@ -45,7 +45,7 @@ unsafe extern "C" fn change(
                 unsafe { minterm_reveal_agent_commands(path.as_ptr()) };
             } else {
                 preferences::update(field, value)?;
-                if field == "agentCommand" {
+                if matches!(field, "agent" | "agentCommand") {
                     minterm_refresh_settings();
                 }
             }
@@ -64,8 +64,8 @@ unsafe extern "C" fn change(
 }
 
 /// Called on the AppKit main thread by the application's event loop.
-pub fn show() {
-    unsafe { minterm_settings_show(snapshot().as_ptr(), change) };
+pub fn show(terminal: &Window) {
+    unsafe { minterm_settings_show(terminal.ns_window(), snapshot().as_ptr(), change) };
 }
 
 fn snapshot() -> CString {

@@ -1,47 +1,49 @@
 #import "agent_commands.h"
-#import "preferences.h"
 
-NSString *MTAgentTitle(NSString *agent) {
+static NSString *agentTitle(NSString *agent) {
     return @{@"codex": @"Codex", @"claude": @"Claude Code", @"opencode": @"OpenCode"}[agent] ?: agent;
 }
 
-void MTAddBuiltInAgents(NSPopUpButton *popup) {
+static void addBaseAgents(NSPopUpButton *popup) {
     for (NSString *agent in @[@"codex", @"claude", @"opencode"]) {
-        [popup addItemWithTitle:MTAgentTitle(agent)];
+        [popup addItemWithTitle:agentTitle(agent)];
         popup.lastItem.representedObject = agent;
     }
 }
 
 @implementation MTAgentCommands {
-    NSString *(^_save)(NSDictionary *);
-    NSString *(^_reveal)(void);
+    MTChangePreference _change;
+    NSString *_defaultName;
     NSArray<NSDictionary *> *_commands;
     NSTableView *_table;
-    NSButton *_add, *_remove, *_edit;
+    NSButton *_add, *_remove, *_edit, *_setDefault;
     NSPanel *_sheet;
     NSTextField *_name, *_command, *_shortcut, *_error, *_configError;
     NSPopUpButton *_agent;
     NSDictionary *_previous;
 }
 
-- (instancetype)initWithSave:(NSString *(^)(NSDictionary *))save reveal:(NSString *(^)(void))reveal {
+- (instancetype)initWithChange:(MTChangePreference)change {
     if (!(self = [super init])) return nil;
-    _save = [save copy];
-    _reveal = [reveal copy];
+    _change = change;
     _view = [NSView new];
     _table = [[NSTableView alloc] initWithFrame:NSMakeRect(0, 0, 480, 150)];
-    _table.accessibilityLabel = @"Custom commands";
+    _table.accessibilityLabel = @"Agent commands";
     _table.dataSource = self;
     _table.delegate = self;
     _table.target = self;
     _table.doubleAction = @selector(editCommand:);
     _table.allowsColumnReordering = NO;
     _table.usesAlternatingRowBackgroundColors = YES;
-    for (NSString *key in @[@"name", @"agent", @"shortcut", @"command"]) {
+    NSDictionary *widths = @{@"default": @44, @"name": @82, @"agent": @82, @"shortcut": @62, @"command": @170};
+    for (NSString *key in @[@"default", @"name", @"agent", @"shortcut", @"command"]) {
         NSTableColumn *column = [[NSTableColumn alloc] initWithIdentifier:key];
         column.title = key.capitalizedString;
-        column.width = [key isEqual:@"command"] ? 170 : 82;
-        column.minWidth = 60;
+        column.minWidth = 44;
+        column.width = [widths[key] doubleValue];
+        if ([key isEqual:@"default"]) {
+            [column.dataCell setAlignment:NSTextAlignmentCenter];
+        }
         if (![key isEqual:@"command"]) column.resizingMask = NSTableColumnUserResizingMask;
         [_table addTableColumn:column];
     }
@@ -61,6 +63,7 @@ void MTAddBuiltInAgents(NSPopUpButton *popup) {
     _edit = [NSButton buttonWithTitle:@"Edit…" target:self action:@selector(editCommand:)];
     _edit.accessibilityLabel = @"Edit command";
 
+    _setDefault = [NSButton buttonWithTitle:@"Set as Default" target:self action:@selector(setDefault:)];
     NSButton *revealButton = [NSButton buttonWithTitle:@"Show in Finder" target:self action:@selector(reveal:)];
     revealButton.toolTip = @"Show the agent commands file in Finder";
     _configError = [NSTextField wrappingLabelWithString:@""];
@@ -72,7 +75,9 @@ void MTAddBuiltInAgents(NSPopUpButton *popup) {
     list.alignment = NSLayoutAttributeWidth;
     NSStackView *buttons = [NSStackView stackViewWithViews:@[_add, _remove, revealButton]];
     buttons.spacing = 4;
-    for (NSView *item in @[list, buttons, _edit]) {
+    NSStackView *actions = [NSStackView stackViewWithViews:@[_setDefault, _edit]];
+    actions.spacing = 6;
+    for (NSView *item in @[list, buttons, actions]) {
         item.translatesAutoresizingMaskIntoConstraints = NO;
         [_view addSubview:item];
     }
@@ -83,14 +88,25 @@ void MTAddBuiltInAgents(NSPopUpButton *popup) {
         [list.bottomAnchor constraintEqualToAnchor:buttons.topAnchor constant:-8],
         [buttons.leadingAnchor constraintEqualToAnchor:list.leadingAnchor],
         [buttons.bottomAnchor constraintEqualToAnchor:_view.bottomAnchor constant:-14],
-        [_edit.trailingAnchor constraintEqualToAnchor:list.trailingAnchor],
-        [_edit.centerYAnchor constraintEqualToAnchor:buttons.centerYAnchor],
+        [actions.trailingAnchor constraintEqualToAnchor:list.trailingAnchor],
+        [actions.centerYAnchor constraintEqualToAnchor:buttons.centerYAnchor],
     ]];
     return self;
 }
 
+- (NSString *)change:(const char *)field value:(NSString *)value {
+    char error[1024] = {0};
+    return _change(field, value.UTF8String, error, sizeof(error)) ? nil : @(error);
+}
+
+- (NSString *)edit:(NSDictionary *)edit {
+    NSData *data = [NSJSONSerialization dataWithJSONObject:edit options:0 error:NULL];
+    NSString *json = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+    return json ? [self change:"agentCommand" value:json] : @"Could not save the command.";
+}
+
 - (void)reveal:(id)sender {
-    NSString *message = _reveal();
+    NSString *message = [self change:"revealAgentCommands" value:@""];
     if (message) [self presentError:message title:@"Could not show the commands file"];
 }
 - (void)presentError:(NSString *)message title:(NSString *)title {
@@ -100,12 +116,18 @@ void MTAddBuiltInAgents(NSPopUpButton *popup) {
     [alert beginSheetModalForWindow:self.view.window completionHandler:nil];
 }
 
-- (void)reload:(NSArray<NSDictionary *> *)commands error:(NSString *)error {
+- (void)reload:(NSArray<NSDictionary *> *)commands defaultName:(NSString *)name error:(NSString *)error {
+    NSString *selection = self.selectedCommand[@"name"];
+    _defaultName = [name copy];
     _configError.hidden = !error.length;
     _configError.stringValue = error ?: @"";
     _add.enabled = !error.length;
     _commands = [commands copy];
     [_table reloadData];
+    NSArray *names = [_commands valueForKey:@"name"];
+    NSUInteger row = [names indexOfObject:selection ?: _defaultName];
+    if (row == NSNotFound) row = [names indexOfObject:_defaultName];
+    if (row != NSNotFound) [_table selectRowIndexes:[NSIndexSet indexSetWithIndex:row] byExtendingSelection:NO];
     [self updateButtons];
 }
 
@@ -113,7 +135,11 @@ void MTAddBuiltInAgents(NSPopUpButton *popup) {
 
 - (id)tableView:(NSTableView *)table objectValueForTableColumn:(NSTableColumn *)column row:(NSInteger)row {
     NSDictionary *entry = _commands[row];
-    return [column.identifier isEqual:@"agent"] ? MTAgentTitle(entry[@"agent"]) : entry[column.identifier] ?: @"";
+    NSString *key = column.identifier;
+    if ([key isEqual:@"default"]) return [entry[@"name"] isEqual:_defaultName] ? @"✓" : @"";
+    if ([key isEqual:@"name"]) return agentTitle(entry[key]);
+    if ([key isEqual:@"agent"]) return [entry[@"name"] isEqual:entry[key]] ? @"" : agentTitle(entry[key]);
+    return entry[key] ?: @"";
 }
 
 - (NSString *)tableView:(NSTableView *)table toolTipForCell:(NSCell *)cell rect:(NSRectPointer)rect
@@ -123,9 +149,21 @@ void MTAddBuiltInAgents(NSPopUpButton *popup) {
 
 - (void)tableViewSelectionDidChange:(NSNotification *)notification { [self updateButtons]; }
 
+- (NSDictionary *)selectedCommand {
+    NSInteger row = _table.selectedRow;
+    return row >= 0 && row < (NSInteger)_commands.count ? _commands[row] : nil;
+}
 - (void)updateButtons {
-    BOOL selected = _table.selectedRow >= 0 && _table.selectedRow < (NSInteger)_commands.count;
-    _edit.enabled = _remove.enabled = selected;
+    NSDictionary *entry = self.selectedCommand;
+    _edit.enabled = entry != nil;
+    _remove.enabled = entry && _commands.count > 1;
+    _setDefault.enabled = entry && ![entry[@"name"] isEqual:_defaultName];
+}
+
+- (void)setDefault:(id)sender {
+    if (!_setDefault.enabled) return;
+    NSString *message = [self change:"agent" value:self.selectedCommand[@"name"]];
+    if (message) [self presentError:message title:@"Could not set default agent"];
 }
 
 - (void)addCommand:(id)sender { [self showEditor:nil]; }
@@ -135,14 +173,15 @@ void MTAddBuiltInAgents(NSPopUpButton *popup) {
 
 - (void)removeCommand:(id)sender {
     if (!_remove.enabled) return;
-    NSString *message = _save(@{@"previous": _commands[_table.selectedRow]});
+    NSString *message = [self edit:@{@"previous": self.selectedCommand}];
     if (message) [self presentError:message title:@"Could not remove command"];
 }
 
 - (void)showEditor:(NSDictionary *)previous {
     if (_sheet) return;
     _previous = previous;
-    _sheet = [[NSPanel alloc] initWithContentRect:NSMakeRect(0, 0, 450, 228)
+    CGFloat width = NSWidth(_view.window.contentView.bounds) - 32;
+    _sheet = [[NSPanel alloc] initWithContentRect:NSMakeRect(0, 0, width, 228)
         styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];
     _sheet.title = previous ? @"Edit Command" : @"Add Command";
     _name = [NSTextField textFieldWithString:previous[@"name"] ?: @""];
@@ -150,7 +189,7 @@ void MTAddBuiltInAgents(NSPopUpButton *popup) {
     _name.placeholderString = @"ocq";
     _agent = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     _agent.accessibilityLabel = @"Base agent";
-    MTAddBuiltInAgents(_agent);
+    addBaseAgents(_agent);
     [_agent selectItemAtIndex:[_agent indexOfItemWithRepresentedObject:previous[@"agent"] ?: @"opencode"]];
     _command = [NSTextField textFieldWithString:previous[@"command"] ?: @""];
     _command.accessibilityLabel = @"Shell command";
@@ -231,7 +270,7 @@ void MTAddBuiltInAgents(NSPopUpButton *popup) {
                               @"command": [_command.stringValue stringByTrimmingCharactersInSet:spaces]};
     NSMutableDictionary *edit = [@{@"replacement": profile} mutableCopy];
     if (_previous) edit[@"previous"] = _previous;
-    NSString *error = _save(edit);
+    NSString *error = [self edit:edit];
     if (error) {
         _error.stringValue = error;
         NSAccessibilityPostNotification(_error, NSAccessibilityValueChangedNotification);

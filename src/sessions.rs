@@ -126,17 +126,18 @@ impl Sessions {
         if let Some(error) = prefs.agent_commands_error {
             return Err(error);
         }
-        let cmd = if let Some(profile) = prefs.agent_command(agent) {
-            let shell = CommandBuilder::new_default_prog().get_shell();
-            let cli =
-                crate::agent_cli::AgentCli::shell_command(Path::new(&shell), &profile.command, cwd);
-            interactive_agent(&profile.agent, cli, cwd, prompt, None)
+        let profile = prefs
+            .agent_command(agent)
+            .ok_or("This agent profile is no longer available. Open Settings to choose another.")?;
+        let cli = if profile.name == profile.agent && profile.command == profile.agent {
+            crate::agent_cli::resolve(&profile.agent, None)?
+        } else if let Some(executable) = crate::agent_cli::literal_executable(&profile.command) {
+            crate::agent_cli::resolve(&profile.agent, Some(&executable))?
         } else {
-            let cli = crate::agent_cli::resolve(agent, prefs.executable(agent))?;
-            let ollama = (agent == "codex" && prefs.codex_ollama)
-                .then_some((prefs.ollama_host.as_str(), prefs.ollama_model.as_str()));
-            interactive_agent(agent, cli, cwd, prompt, ollama)
+            let shell = CommandBuilder::new_default_prog().get_shell();
+            crate::agent_cli::AgentCli::shell_command(Path::new(&shell), &profile.command, cwd)
         };
+        let cmd = interactive_agent(&profile.agent, cli, cwd, prompt);
         self.spawn(id, cwd, size(cols, rows), cmd)
     }
 
@@ -351,7 +352,6 @@ fn interactive_agent(
     cli: crate::agent_cli::AgentCli,
     cwd: &Path,
     prompt: &str,
-    ollama: Option<(&str, &str)>,
 ) -> CommandBuilder {
     // portable-pty falls back to HOME if the cwd disappears. The final chdir
     // in env either succeeds in that exact directory or aborts before exec.
@@ -360,21 +360,6 @@ fn interactive_agent(
     cmd.arg(cwd);
     cmd.arg(cli.program);
     cmd.args(cli.args);
-    if let Some((host, model)) = ollama {
-        cmd.args(["--oss", "--local-provider", "ollama"]);
-        if !model.trim().is_empty() {
-            cmd.args(["-m", model]);
-        }
-        let base = host.trim_end_matches('/');
-        cmd.env(
-            "CODEX_OSS_BASE_URL",
-            if base.ends_with("/v1") {
-                base.to_owned()
-            } else {
-                format!("{base}/v1")
-            },
-        );
-    }
     if !prompt.is_empty() {
         if name == "opencode" {
             // The CLI parses a separate "--help" value as a flag. Bind the
@@ -897,7 +882,6 @@ mod tests {
             r#"#!/bin/sh
             test -t 0 && test -t 1 && test -t 2 || exit 41
             printf '%s\0' "$@" > args
-            printf '%s' "$CODEX_OSS_BASE_URL" > endpoint
             printf 'ready\n'
             read -r line
             printf '<%s>\n' "$line"
@@ -907,12 +891,7 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
         let prompt = "--leading option $(touch surprise)\nand another line";
-        for (name, oss) in [
-            ("codex", None),
-            ("codex", Some(("http://localhost:1234", "chosen model"))),
-            ("claude", None),
-            ("opencode", None),
-        ] {
+        for name in ["codex", "claude", "opencode"] {
             let (tx, rx) = mpsc::channel();
             let mut sessions = Sessions::new(move |event| {
                 let _ = tx.send(event);
@@ -922,19 +901,12 @@ mod tests {
                 args: Vec::new(),
                 path: None,
             };
-            let cmd = interactive_agent(name, cli, &work, prompt, oss);
+            let cmd = interactive_agent(name, cli, &work, prompt);
             sessions.spawn(ID, &work, size(100, 20), cmd).unwrap();
             read_until(&sessions, &rx, "ready");
             assert_eq!(sessions.live_cwd(ID).unwrap(), work.canonicalize().unwrap());
             let args = std::fs::read(work.join("args")).unwrap();
             let mut expected = Vec::new();
-            if oss.is_some() {
-                expected.extend_from_slice(b"--oss\0--local-provider\0ollama\0-m\0chosen model\0");
-                assert_eq!(
-                    std::fs::read_to_string(work.join("endpoint")).unwrap(),
-                    "http://localhost:1234/v1"
-                );
-            }
             expected.extend_from_slice(if name == "opencode" {
                 b"--prompt="
             } else {
@@ -1000,7 +972,7 @@ mod tests {
             ] {
                 let cli =
                     crate::agent_cli::AgentCli::shell_command(Path::new(shell), command, &work);
-                let mut cmd = interactive_agent(name, cli, &work, task, None);
+                let mut cmd = interactive_agent(name, cli, &work, task);
                 cmd.env_clear();
                 cmd.env("HOME", home);
                 cmd.env("ZDOTDIR", home);

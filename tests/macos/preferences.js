@@ -1,4 +1,4 @@
-// Exercise the native General pane and then use its saved settings in the terminal window.
+// Exercise native Settings and use the selected command in the terminal window.
 async function verifyPreferences() {
   const settings = (action, args = {}) => window.webkit.messageHandlers.testKey
     .postMessage({preferences: {action, ...args}});
@@ -23,38 +23,47 @@ async function verifyPreferences() {
     if (!await key(43, ',', command)) throw new Error('Settings menu shortcut was unavailable');
   };
   const recordKey = (code, letter, modifiers) => settings('key', {code, letter, modifiers});
-  const defaults = {mode: 'Terminal', agent: 'Codex', shortcut: '⌘K'};
+  const defaults = {mode: 'Terminal', shortcut: '⌘K'};
   const option = 1 << 19;
   await settings('prepare');
   await open();
   const presets = [
+    {name: 'codex', title: 'Codex', agent: '', command: 'codex'},
+    {name: 'claude', title: 'Claude Code', agent: '', command: 'claude'},
+    {name: 'opencode', title: 'OpenCode', agent: '', command: 'opencode'},
     {name: 'ocq', agent: 'opencode', command: 'ocq --', shortcut: ''},
     {name: 'sol-light', agent: 'codex', shortcut: 'Enter+L'},
     {name: 'sol-ultra', agent: 'codex', shortcut: 'Enter+U'},
   ];
-  const baseChoices = ['Codex', 'Claude Code', 'OpenCode', ...presets.map(p => p.name)];
-  await state({...defaults, agents: baseChoices, panes: ['General', 'Commands', 'Codex']});
-  await settings('pane', {value: 'Commands'});
-  await state({commands: presets});
+  const pane = value => settings('pane', {value});
+  const choose = name => settings('default', {name});
+  const commandState = (commands, defaultName) => state({commands, defaultName, defaultCount: 1});
+  await state({...defaults, centered: true, panes: ['General', 'Commands']});
+  await pane('Commands');
+  await commandState(presets, 'codex');
+  const editedStock = {name: 'opencode', agent: 'opencode',
+    command: '"$HOME/.local/bin/opencode" --model "fixture/qwen tuned"', shortcut: ''};
+  await settings('editCommand', editedStock);
+  const edited = presets.map(profile => profile.name === editedStock.name ? {...editedStock, agent: ''} : profile);
+  await commandState(edited, 'codex');
+  const reopened = await settings('readCommand', {name: editedStock.name});
+  if (!matches(reopened, editedStock)) throw new Error('Reopened stock command: ' + JSON.stringify(reopened));
   const profile = {name: 'localq', agent: 'opencode', command: 'ocq', shortcut: 'Enter+R'};
   await settings('addCommand', profile);
-  await state({commands: [...presets, profile]});
-  await settings('pane', {value: 'General'});
-  await settings('agent', {value: profile.name});
-  await state({agent: profile.name});
-  await settings('pane', {value: 'Commands'});
-  const renamed = {name: 'qwenreview', agent: 'opencode', command: '"$HOME/.local/bin/opencode" --model "fixture/qwen tuned"', shortcut: 'Enter+Y'};
+  await commandState([...edited, profile], 'codex');
+  await choose(profile.name);
+  await commandState([...edited, profile], profile.name);
+  const renamed = {...profile, name: 'qwenreview', shortcut: 'Enter+Y'};
   await settings('editCommand', {original: profile.name, ...renamed});
-  await state({commands: [...presets, renamed]});
-  await settings('pane', {value: 'General'});
-  await state({agent: renamed.name, agents: [...baseChoices, renamed.name]});
+  await commandState([...edited, renamed], renamed.name);
+  await pane('General');
   await settings('mode', {value: 'Agent'});
   await settings('record');
   await state({shortcut: 'Press ⌘ and a letter'});
   await recordKey(17, 't', command);
   await state({shortcut: 'Shortcut in use. Try another.'});
   await recordKey(16, 'y', command | option);
-  const changed = {mode: 'Agent', agent: renamed.name, shortcut: '⌥⌘Y'};
+  const changed = {mode: 'Agent', shortcut: '⌥⌘Y'};
   await state(changed);
   await settings('close');
   await expect('New tab and mode toggle reflect saved settings', () =>
@@ -64,16 +73,20 @@ async function verifyPreferences() {
     $('#agent-launch').open && $('#agent-launch-form').elements.agent.value === renamed.name);
   $('#agent-launch').close();
   await open();
-  await state(changed); // show() reloads values from the Rust preferences store.
+  await state(changed);
+  await pane('Commands');
+  await commandState([...edited, renamed], renamed.name);
+  await settings('removeCommand', {name: renamed.name});
+  await commandState(edited, editedStock.name);
   await settings('close');
   const before = tabs().length;
   await key(17, 't', command);
   const page = () => $('.terminal-page.selected');
   await expect('Command-T honors the default agent tab preference', () =>
-    tabs().length === before + 1 && selected().textContent.includes(renamed.name) &&
+    tabs().length === before + 1 && selected().textContent.includes('OpenCode') &&
     page()?.dataset.kind === 'agent' && page().dataset.state === 'live');
   const defaultTerminal = activeTerminal();
-  await expect('The default command uses its quoted model argument', () =>
+  await expect('The edited stock command uses its quoted model argument', () =>
     rows(defaultTerminal).includes('Model: fixture/qwen tuned'));
   await key(16, 'y', command | option);
   await expect('The recorded shortcut switches to the shell', () => page()?.dataset.kind === 'shell');
@@ -84,42 +97,15 @@ async function verifyPreferences() {
   await key(13, 'w', command);
   await expect('Settings test tab closed', () => tabs().length === before);
   await open();
-  await state(changed);
-  await settings('pane', {value: 'Commands'});
-  await state({commands: [...presets, renamed]});
-  await settings('removeCommand', {name: renamed.name});
-  await state({commands: presets});
-  await settings('pane', {value: 'General'});
-  await state({agent: 'OpenCode', agents: baseChoices});
-  await settings('agent', {value: 'Codex'});
+  await commandState(edited, editedStock.name);
+  await settings('editCommand', {name: 'opencode', command: 'opencode'});
+  await choose('codex');
+  await commandState(presets, 'codex');
+  await pane('General');
   await settings('mode', {value: 'Terminal'});
   await settings('record');
   await recordKey(40, 'k', command);
   await state(defaults);
-  await settings('pane', {value: 'Codex'});
-  await state({backend: 'Codex default', enabled: false});
-  await settings('backend', {value: 'Ollama'});
-  const models = ['fixture-coder:1b', 'fixture-reasoner:2b'];
-  await state({models: models.slice(0, 1)});
-  await settings('refresh');
-  await state({models});
-  await settings('selectModel', {index: 1});
-  await settings('close');
-  await open();
-  await state({backend: 'Ollama', enabled: true, model: models[1]});
-  await settings('backend', {value: 'Codex default'});
-  await state({enabled: false, model: models[1]});
-  await settings('pane', {value: 'General'});
-  await state(defaults);
-  // Hiding the executable row ends editing. The unfinished path belongs to the
-  // built-in that owned the field, even after the default popup changed.
-  const path = '/fixture/tools/custom codex';
-  await settings('draftExecutable', {value: path});
-  await settings('agent', {value: 'ocq'});
-  await state({agent: 'ocq'});
-  await settings('agent', {value: 'Codex'});
-  await state({...defaults, executable: path});
-  await settings('draftExecutable', {value: ''});
   await settings('close');
   await expect('Original tab defaults and menu shortcut restored', () =>
     $('#new-tab').getAttribute('aria-label') === 'New terminal tab' && $('#command-toggle').title.includes('(⌘K)'));

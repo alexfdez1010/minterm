@@ -82,7 +82,7 @@ pub fn launch(
             Event::UserEvent(Message::Action(Action::Drag)) => {
                 let _ = window.drag_window();
             }
-            Event::UserEvent(Message::Menu(name)) if name == "settings" => settings::show(),
+            Event::UserEvent(Message::Menu(name)) if name == "settings" => settings::show(&window),
             Event::UserEvent(Message::Preferences) => {
                 let _ = switch_mode
                     .set_key_accelerator(preferences::accelerator(&preferences::read().shortcut));

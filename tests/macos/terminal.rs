@@ -6,7 +6,6 @@ use std::{
     env,
     ffi::{CString, c_char, c_void},
     fs,
-    io::{BufRead, BufReader, Write},
     net::TcpListener,
     os::unix::fs::PermissionsExt,
     path::Path,
@@ -89,7 +88,7 @@ done
         .unwrap();
         fs::set_permissions(cli, fs::Permissions::from_mode(0o700)).unwrap();
     }
-    // Use the local model catalog's listener as a synthetic Docker port mapping.
+    // Map the test's real loopback listener to PostgreSQL's container port.
     // This exercises deduplication across the Docker parser and real lsof output.
     let docker = bin.join("docker");
     fs::write(
@@ -107,31 +106,6 @@ printf 'fixture-private\tlocal/worker:1\trunning\t8080/tcp\n'
     .unwrap();
     fs::set_permissions(docker, fs::Permissions::from_mode(0o700)).unwrap();
     bin
-}
-
-// A newly installed second model appears only after Refresh. Both requests
-// stay on loopback and exercise the native pane's normal /api/tags path.
-fn serve_model_catalog(server: &TcpListener, requests: &mut usize) {
-    while let Ok((mut stream, _)) = server.accept() {
-        stream.set_nonblocking(false).unwrap();
-        stream
-            .set_read_timeout(Some(Duration::from_secs(2)))
-            .unwrap();
-        let mut headers = BufReader::new(&stream).lines();
-        assert_eq!(headers.next().unwrap().unwrap(), "GET /api/tags HTTP/1.1");
-        for line in headers {
-            if line.unwrap().is_empty() {
-                break;
-            }
-        }
-        *requests += 1;
-        let body = if *requests == 1 {
-            r#"{"models":[{"name":"fixture-coder:1b"}]}"#
-        } else {
-            r#"{"models":[{"name":"fixture-coder:1b"},{"name":"fixture-reasoner:2b"}]}"#
-        };
-        write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
-    }
 }
 
 fn main() {
@@ -171,18 +145,7 @@ command = "opencode --model fixture/external"
 "#,
     )
     .unwrap();
-    let models = TcpListener::bind(("127.0.0.1", 0)).unwrap();
-    models.set_nonblocking(true).unwrap();
-    let mut model_requests = 0;
-    let prefs_dir = home.join("Library/Preferences");
-    fs::create_dir_all(&prefs_dir).unwrap();
-    let prefs_file = prefs_dir.join("com.github.alexfdez1010.minterm.json");
-    fs::write(
-        &prefs_file,
-        serde_json::json!({"ollamaHost": format!("http://{}", models.local_addr().unwrap())})
-            .to_string(),
-    )
-    .unwrap();
+    let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
     fs::create_dir(workspace.join("bin")).unwrap();
     // macOS may reject a renamed copy of a signed system executable.
     let fixture = home.join("fixture.c");
@@ -217,7 +180,7 @@ int main(void) {
         .env("LANG", "en_US.UTF-8")
         .env(
             "FIXTURE_PORT",
-            models.local_addr().unwrap().port().to_string(),
+            listener.local_addr().unwrap().port().to_string(),
         )
         .env(
             "PATH",
@@ -233,7 +196,6 @@ int main(void) {
         .unwrap();
     let deadline = Instant::now() + Duration::from_secs(45);
     loop {
-        serve_model_catalog(&models, &mut model_requests);
         if let Some(status) = app.try_wait().unwrap() {
             assert!(status.success(), "Window test exited with {status}");
             break;
@@ -249,9 +211,6 @@ int main(void) {
         home.join("smoke-passed").is_file(),
         "Window test did not finish"
     );
-    assert_eq!(model_requests, 2);
-    let stored: serde_json::Value = serde_json::from_slice(&fs::read(prefs_file).unwrap()).unwrap();
-    assert_eq!(stored["ollamaModel"], "fixture-reasoner:2b");
     assert_eq!(
         fs::read_to_string(nested.join("tested-cwd"))
             .unwrap()

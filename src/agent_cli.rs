@@ -40,6 +40,20 @@ impl AgentCli {
     }
 }
 
+// Only bypass the interactive shell for a single, literal executable. A saved
+// invocation containing expansions or flags keeps its normal shell semantics.
+pub(crate) fn literal_executable(command: &str) -> Option<PathBuf> {
+    if !(command.starts_with('/') || command.starts_with("'/")) {
+        return None;
+    }
+    let words = shell_words::split(command).ok()?;
+    let [path] = words.as_slice() else {
+        return None;
+    };
+    (Path::new(path).is_absolute() && shell_words::quote(path) == command)
+        .then(|| PathBuf::from(path))
+}
+
 pub(crate) fn resolve(agent: &str, configured: Option<&Path>) -> Result<AgentCli, String> {
     let name = match agent {
         "codex" => "Codex",

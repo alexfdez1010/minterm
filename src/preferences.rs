@@ -16,12 +16,12 @@ pub struct Preferences {
     #[serde(skip_deserializing)]
     pub agent_commands_error: Option<String>,
     pub shortcut: String,
-    pub codex_ollama: bool,
     pub new_tab_mode: String,
-    pub ollama_host: String,
-    pub ollama_model: String,
+    #[serde(skip_serializing)]
     codex_path: String,
+    #[serde(skip_serializing)]
     claude_path: String,
+    #[serde(skip_serializing)]
     opencode_path: String,
 }
 
@@ -47,15 +47,17 @@ impl AgentCommand {
         {
             return Err("Start the name with a letter. Use up to 64 letters, numbers, dots, dashes or underscores.".into());
         }
-        if built_in(&self.name.to_ascii_lowercase()) {
-            return Err("That name belongs to a built-in agent.".into());
+        if built_in(&self.name.to_ascii_lowercase()) && self.name != self.agent {
+            return Err("Use a lowercase provider name only for its matching CLI.".into());
         }
         if !built_in(&self.agent) {
             return Err("Choose Codex, Claude Code or OpenCode.".into());
         }
         if self.command.trim().is_empty()
             || self.command.len() > 4096
-            || self.command.chars().any(char::is_control)
+            || self.command.contains('\0')
+            || (self.command.chars().any(char::is_control)
+                && crate::agent_cli::literal_executable(&self.command).is_none())
         {
             return Err("Enter a single-line shell command of up to 4096 bytes.".into());
         }
@@ -70,10 +72,7 @@ impl Default for Preferences {
             agent_commands: Vec::new(),
             agent_commands_error: None,
             shortcut: "⌘K".into(),
-            codex_ollama: false,
             new_tab_mode: "terminal".into(),
-            ollama_host: "http://127.0.0.1:11434".into(),
-            ollama_model: String::new(),
             codex_path: String::new(),
             claude_path: String::new(),
             opencode_path: String::new(),
@@ -101,29 +100,7 @@ fn validated_value<'a>(field: &str, value: &'a str) -> Result<&'a str, String> {
     let value = value.trim();
     match field {
         "newTabMode" if matches!(value, "terminal" | "agent") => Ok(value),
-        "codexOllama" if matches!(value, "true" | "false") => Ok(value),
         "shortcut" if accelerator(value).is_some() => Ok(value),
-        "ollamaHost" => {
-            let uri: wry::http::Uri = value
-                .parse()
-                .map_err(|_| "Enter an HTTP or HTTPS server URL.")?;
-            if !matches!(uri.scheme_str(), Some("http" | "https"))
-                || uri.host().is_none()
-                || uri.authority().is_some_and(|a| a.as_str().contains('@'))
-                || uri.query().is_some()
-            {
-                return Err(
-                    "Enter an HTTP or HTTPS server URL without credentials or a query.".into(),
-                );
-            }
-            Ok(native_ollama_host(value))
-        }
-        "ollamaModel" if value.len() <= 256 && !value.chars().any(char::is_control) => Ok(value),
-        "codexPath" | "claudePath" | "opencodePath"
-            if value.is_empty() || Path::new(value).is_absolute() =>
-        {
-            Ok(value)
-        }
         _ => Err("This setting is invalid.".into()),
     }
 }
@@ -159,31 +136,19 @@ fn path() -> Option<PathBuf> {
         .map(|dir| dir.join("Library/Preferences/com.github.alexfdez1010.minterm.json"))
 }
 
-fn native_ollama_host(value: &str) -> &str {
-    let host = value.trim_end_matches('/');
-    if host
-        .split_once("://")
-        .is_some_and(|(_, address)| address.ends_with("/v1"))
-    {
-        &host[..host.len() - 3]
-    } else {
-        host
-    }
+pub(crate) fn read_general() -> Preferences {
+    path()
+        .and_then(|path| fs::read(path).ok())
+        .and_then(|bytes| load(&bytes).ok())
+        .unwrap_or_default()
 }
 
 pub fn read() -> Preferences {
-    let mut prefs = path()
-        .and_then(|path| fs::read(path).ok())
-        .and_then(|bytes| load(&bytes).ok())
-        .unwrap_or_default();
-    match agent_config::read() {
+    let mut prefs = read_general();
+    match agent_config::read(&prefs) {
         Ok(config) => {
             prefs.agent_commands = config.commands;
-            if let Some(default) = config.default {
-                prefs.agent = default;
-            } else if !built_in(&prefs.agent) && prefs.agent_command(&prefs.agent).is_none() {
-                prefs.agent = "codex".into();
-            }
+            prefs.agent = config.default;
         }
         Err(error) => prefs.agent_commands_error = Some(error),
     }
@@ -201,7 +166,6 @@ fn migrate(saved: &mut serde_json::Map<String, serde_json::Value>) {
     }
     if saved.get("agent").and_then(|v| v.as_str()) == Some("codex-ollama") {
         saved.insert("agent".into(), "codex".into());
-        saved.entry("codexOllama").or_insert(true.into());
     }
     saved.insert("formatVersion".into(), 1.into());
 }
@@ -209,9 +173,7 @@ fn migrate(saved: &mut serde_json::Map<String, serde_json::Value>) {
 fn load(bytes: &[u8]) -> Result<Preferences, serde_json::Error> {
     let mut saved = serde_json::from_slice(bytes)?;
     migrate(&mut saved);
-    let mut prefs: Preferences = serde_json::from_value(serde_json::Value::Object(saved))?;
-    prefs.ollama_host = native_ollama_host(&prefs.ollama_host).to_owned();
-    Ok(prefs)
+    serde_json::from_value(serde_json::Value::Object(saved))
 }
 
 pub fn update(field: &str, value: &str) -> Result<(), String> {
@@ -252,12 +214,7 @@ fn update_at(path: &Path, field: &str, value: &str) -> Result<(), String> {
         Err(e) => return Err(error(e)),
     };
     migrate(&mut saved);
-    let value = if field == "codexOllama" {
-        (value == "true").into()
-    } else {
-        value.into()
-    };
-    saved.insert(field.into(), value);
+    saved.insert(field.into(), value.into());
     let mut temp = tempfile::NamedTempFile::new_in(dir).map_err(error)?;
     serde_json::to_writer_pretty(&mut temp, &saved).map_err(|e| e.to_string())?;
     temp.flush().map_err(error)?;
@@ -270,34 +227,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn command_settings_validate_shortcuts_origins_and_cli_paths() {
+    fn command_settings_validate_shortcuts() {
         for shortcut in ["⌘J", "⌃⌥⇧⌘L", "⇧⌘K"] {
             assert!(accelerator(shortcut).is_some());
         }
         for shortcut in ["K", "⇧K", "⌘1", "⌘⇧K", "⌘Delete"] {
             assert!(accelerator(shortcut).is_none());
         }
-        for url in [
-            "file:///tmp",
-            "http://user:pass@localhost",
-            "https://localhost/?key=x",
-        ] {
-            assert!(validated_value("ollamaHost", url).is_err());
-        }
-        assert_eq!(
-            validated_value("ollamaHost", "http://[::1]:11434/").unwrap(),
-            "http://[::1]:11434"
-        );
-        assert_eq!(
-            validated_value("ollamaHost", "https://example.test/ollama/v1/").unwrap(),
-            "https://example.test/ollama"
-        );
-        assert_eq!(native_ollama_host("http://v1/"), "http://v1");
-        assert!(validated_value("codexPath", "codex --exec").is_err());
-        assert_eq!(
-            validated_value("claudePath", "/home/My Tools/claude").unwrap(),
-            "/home/My Tools/claude"
-        );
     }
 
     #[test]
@@ -330,29 +266,35 @@ mod tests {
     }
 
     #[test]
-    fn legacy_ollama_configuration_and_custom_paths_survive_updates() {
+    fn retired_ollama_backend_keeps_the_codex_executable_and_shortcut() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("prefs.json");
-        let old = br#"{"agent":"codex-ollama","ollamaModel":"coder:7b","codexPath":"/tmp/my codex","claudePath":"/tmp/claude","futureSetting":9}"#;
-        fs::write(&path, old).unwrap();
-        let read = || load(&fs::read(&path).unwrap()).unwrap();
-        assert_eq!(read().agent, "codex");
-        assert!(read().codex_ollama);
+        let legacy = serde_json::json!({
+            "agent": "codex-ollama", "shortcut": "⌥⌘Y", "newTabMode": "agent",
+            "codexOllama": true, "ollamaHost": "http://localhost:11434", "ollamaModel": "coder:7b",
+            "codexPath": "/tmp/my codex", "opencodePath": "/opt/Open Code/bin/client", "futureSetting": 9
+        });
+        fs::write(&path, legacy.to_string()).unwrap();
         update_at(&path, "newTabMode", "agent").unwrap();
-        update_at(&path, "opencodePath", "/opt/Open Code/bin/client").unwrap();
-        let prefs = read();
+        let saved = fs::read(path).unwrap();
+        let prefs = load(&saved).unwrap();
         assert_eq!(prefs.agent, "codex");
-        assert!(prefs.codex_ollama);
-        assert_eq!(prefs.ollama_model, "coder:7b");
+        assert_eq!(prefs.shortcut, "⌥⌘Y");
+        assert_eq!(prefs.new_tab_mode, "agent");
         assert_eq!(prefs.executable("codex"), Some(Path::new("/tmp/my codex")));
         assert_eq!(
             prefs.executable("opencode"),
             Some(Path::new("/opt/Open Code/bin/client"))
         );
-        update_at(&path, "codexOllama", "false").unwrap();
-        assert!(!read().codex_ollama);
-        let saved: serde_json::Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
-        assert_eq!(saved["futureSetting"], 9);
+        let snapshot = serde_json::to_value(&prefs).unwrap();
+        for key in ["codexOllama", "ollamaHost", "ollamaModel"] {
+            assert!(snapshot.get(key).is_none());
+            assert!(validated_value(key, "ignored").is_err());
+        }
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&saved).unwrap()["futureSetting"],
+            9
+        );
     }
 
     #[test]
@@ -369,7 +311,6 @@ mod tests {
 
         let mut legacy = serde_json::json!({
             "agent":"codex", "shortcut":"⇧⌘K", "newTabMode":"agent",
-            "ollamaHost":"http://localhost:11434", "ollamaModel":"coder",
             "codexPath":"/opt/codex", "claudePath":""
         });
         fs::write(&path, legacy.to_string()).unwrap();
