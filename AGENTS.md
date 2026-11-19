@@ -12,6 +12,8 @@ Minterm is a macOS terminal for CLI agents. Keep terminal input responsive durin
 | PTY I/O, backpressure and cleanup | `src/sessions.rs` |
 | Login shell integration and Git prompt | `src/prompt.rs`, `shell/` |
 | Agent recognition, Git, TCP listeners and Docker | `src/agents.rs`, `src/inspect.rs` |
+| Noninteractive CLI processes and structured event parsing | `src/jobs.rs`, `src/jobs/events.rs` |
+| Agent activity, launch dialog and summary consent | `ui/activity.js`, `ui/agents.js` |
 | Provider requests, encrypted store and native Settings | `src/assistant.rs`, `src/credentials.rs`, `src/settings.rs`, `macos/settings.m` |
 | Tabs, workspace and inspector | `ui/app.js`, `ui/inspector.js`, `ui/assistant.js`, `ui/app.css` |
 
@@ -25,7 +27,7 @@ The project skill [minterm-macos](.agents/skills/minterm-macos/SKILL.md) covers 
 - Keep shell output as bytes through the PTY. Acknowledge each output block after the renderer consumes it. Shells continue running in inactive tabs.
 - Let the OS menu own macOS commands. Keep new-tab creation and selection on the input path. Run Git, Docker, process scans, provider calls and credential writes outside that path.
 - Keep service discovery read-only and bounded. Introduce new agent recognition with executable or package-entrypoint fixtures. Only process metadata needed by the UI crosses the bridge.
-- A provider receives the submitted question. Store credentials through `src/credentials.rs`; the webview never needs a saved key. Use a temporary home and dummy keys to test persistence, rotation and concurrent opens.
+- A provider receives the submitted question, an explicitly reviewed excerpt, or the task and activity labels of an opted-in run. Store credentials through `src/credentials.rs`; the webview never needs a saved key. Use a temporary home and dummy keys to test persistence, rotation and concurrent opens.
 - Preserve the upstream JS and licenses in `ui/vendor/`. Make application changes in the adjacent source modules. Check the bundled app if a change affects paths, signing or macOS startup.
 
 Build and test commands are in [README.md](README.md#development). Update the keyboard table when changing a shortcut.

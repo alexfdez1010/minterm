@@ -6,6 +6,7 @@ use std::{
     env,
     ffi::{CString, c_char, c_void},
     fs,
+    os::unix::fs::PermissionsExt,
     path::Path,
     process::Command,
     thread,
@@ -31,6 +32,38 @@ fn init_repository(dir: &Path, branch: &str) {
     );
 }
 
+// Model the Codex CLI boundary. A tool result and the final reply come from
+// distinct JSONL records, just as they do in a non-interactive Codex session.
+fn install_managed_codex(home: &Path) -> std::path::PathBuf {
+    let bin = home.join(".local/bin");
+    fs::create_dir_all(&bin).unwrap();
+    let executable = bin.join("codex");
+    fs::write(&executable, r#"#!/bin/sh
+set -eu
+if [ "$#" -ne 3 ] || [ "$1" != exec ] || [ "$2" != --json ] || [ "$3" != - ]; then
+    echo "Expected codex exec --json -" >&2
+    exit 64
+fi
+cat > "$HOME/managed-stdin"
+pwd > "$HOME/managed-cwd"
+mkfifo "$HOME/finish-tool"
+cat <<'JSONL'
+{"type":"thread.started","thread_id":"fixture-thread"}
+{"type":"turn.started"}
+{"type":"item.started","item":{"id":"step-1","type":"command_execution","command":"pwd","aggregated_output":"","exit_code":null,"status":"in_progress"}}
+JSONL
+# Keep the tool step active until the test resumes it from the source shell.
+read -r release < "$HOME/finish-tool"
+cat <<'JSONL'
+{"type":"item.completed","item":{"id":"step-1","type":"command_execution","command":"pwd","aggregated_output":"nested","exit_code":0,"status":"completed"}}
+{"type":"item.completed","item":{"id":"step-2","type":"agent_message","text":"Fixture review complete."}}
+{"type":"turn.completed","usage":{"input_tokens":7,"cached_input_tokens":0,"output_tokens":4}}
+JSONL
+"#).unwrap();
+    fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+    bin
+}
+
 fn main() {
     if env::args().nth(1).as_deref() == Some("--app") {
         minterm::launch(env::current_dir().unwrap(), false, |window, _| {
@@ -50,12 +83,20 @@ fn main() {
     let nested = workspace.join("nested");
     init_repository(&workspace, "main");
     init_repository(&nested, "agent/review");
+    let fixture_bin = install_managed_codex(&home);
     fs::create_dir(workspace.join("bin")).unwrap();
     // macOS may reject a renamed copy of a signed system executable.
     let fixture = home.join("fixture.c");
     fs::write(
         &fixture,
-        "#include <unistd.h>\nint main(void) { sleep(40); }\n",
+        r#"#include <stdio.h>
+#include <unistd.h>
+int main(void) {
+    puts("Do you want to proceed? [y/n]");
+    fflush(stdout);
+    sleep(40);
+}
+"#,
     )
     .unwrap();
     assert!(
@@ -74,7 +115,10 @@ fn main() {
         .env("HOME", &home)
         .env("SHELL", "/bin/bash")
         .env("LANG", "en_US.UTF-8")
-        .env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
+        .env(
+            "PATH",
+            format!("{}:/usr/bin:/bin:/usr/sbin:/sbin", fixture_bin.display()),
+        )
         .env("BASH_SILENCE_DEPRECATION_WARNING", "1")
         .env(
             "DOCKER_HOST",
@@ -96,14 +140,24 @@ fn main() {
         }
         thread::sleep(Duration::from_millis(100));
     }
+    assert!(
+        home.join("smoke-passed").is_file(),
+        "Window test did not finish"
+    );
     assert_eq!(
         fs::read_to_string(nested.join("tested-cwd"))
             .unwrap()
             .trim(),
         nested.to_str().unwrap()
     );
-    assert!(
-        home.join("smoke-passed").is_file(),
-        "Window test did not finish"
+    assert_eq!(
+        fs::read_to_string(home.join("managed-cwd"))
+            .unwrap()
+            .trim_end(),
+        nested.to_str().unwrap(),
+    );
+    assert_eq!(
+        fs::read_to_string(home.join("managed-stdin")).unwrap(),
+        "Review fixture changes\nDescribe `git status` literally.",
     );
 }

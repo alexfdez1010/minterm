@@ -1,15 +1,13 @@
-import { $, element, icon, send } from "./shared.js";
+import { $, element, send } from "./shared.js";
+import { initAgents, renderAgents } from "./agents.js";
 
 let services,
   showAll = false,
   scanPending = false,
   agentsPending = false,
   lastScan = 0;
-let selectSession, tabLabel;
-
-export function initInspector(select, label) {
-  selectSession = select;
-  tabLabel = label;
+export function initInspector(select, label, launch, preview, summarize) {
+  initAgents(select, label, launch, preview, summarize);
   for (const section of document.querySelectorAll("#inspect-panel details")) {
     section.addEventListener("toggle", () => {
       if (section.open && !$("sidebar").hidden && !$("inspect-panel").hidden) refreshInspector();
@@ -43,30 +41,7 @@ export function receiveServices(payload) {
 }
 export function receiveAgents(agents) {
   agentsPending = false;
-  $("agent-count").textContent = String(agents.length);
-  $("agent-empty").textContent = "No agents running.";
-  $("agent-empty").hidden = agents.length !== 0;
-  // Preserve keyboard focus across scans when the process list is unchanged.
-  const rows = agents.map((agent) => ({ ...agent, label: tabLabel(agent.id) }));
-  const fingerprint = JSON.stringify(rows);
-  if ($("agents").dataset.fingerprint === fingerprint) return;
-  $("agents").dataset.fingerprint = fingerprint;
-  $("agents").replaceChildren(
-    ...rows.map((agent) => {
-      const row = element("li");
-      const button = element("button", "agent-link");
-      const text = element("span");
-      text.append(
-        element("strong", "", agent.name),
-        element("small", "", agent.label + (agent.foreground ? "" : " · Background")),
-      );
-      button.append(text, icon("arrow"));
-      button.title = "Go to " + agent.label + " · PID " + agent.pid;
-      button.onclick = () => selectSession(agent.id);
-      row.append(button);
-      return row;
-    }),
-  );
+  renderAgents(agents);
 }
 function scan() {
   if (scanPending) return;

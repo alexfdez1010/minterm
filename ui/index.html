@@ -8,6 +8,7 @@
     <link rel="preload" href="/fonts/martian-mono.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="stylesheet" href="/tokens.css" />
     <link rel="stylesheet" href="/app.css" />
+    <link rel="stylesheet" href="/agents.css" />
     <script defer src="/vendor/xterm.js"></script>
     <script defer src="/vendor/addon-fit.js"></script>
     <script type="module" src="/app.js"></script>
@@ -61,12 +62,25 @@
             </button>
           </div>
           <div class="panel-scroll">
+            <div class="agent-section-tools">
+              <button
+                id="start-agent"
+                class="icon"
+                type="button"
+                title="Start agent"
+                aria-label="Start agent"
+                aria-haspopup="dialog"
+                aria-controls="agent-launch"
+              >
+                <i data-icon="plus"></i>
+              </button>
+            </div>
             <details id="agent-section" open>
               <summary>
                 <i data-icon="agents"></i><span>Agents</span
                 ><span class="count" id="agent-count"></span><i data-icon="chevron"></i>
               </summary>
-              <ul class="rows" id="agents" aria-label="Running agents"></ul>
+              <ul class="rows" id="agents" aria-label="Agent sessions"></ul>
               <p class="empty" id="agent-empty">Checking sessions…</p>
             </details>
             <details id="port-section">
@@ -126,6 +140,94 @@
       </aside>
     </main>
     <div id="notice" role="status" hidden></div>
+    <dialog id="agent-launch" class="agent-dialog" aria-labelledby="agent-launch-title">
+      <form id="agent-launch-form">
+        <h2 id="agent-launch-title">Start agent</h2>
+        <fieldset class="agent-choices">
+          <legend>Agent</legend>
+          <div class="agent-options">
+            <label
+              ><input type="radio" name="agent" value="codex" checked /><span>Codex</span></label
+            >
+            <label
+              ><input type="radio" name="agent" value="claude" /><span>Claude Code</span></label
+            >
+          </div>
+        </fieldset>
+        <div>
+          <label for="agent-prompt">Task</label>
+          <textarea
+            id="agent-prompt"
+            rows="4"
+            maxlength="4000"
+            required
+            spellcheck="false"
+          ></textarea>
+        </div>
+        <div>
+          <label class="summary-choice">
+            <input type="checkbox" id="agent-opt-in" aria-controls="agent-summary-options" />
+            Summarize activity with AI
+          </label>
+          <div id="agent-summary-options" hidden>
+            <label for="agent-summary-provider">Summary provider</label>
+            <select id="agent-summary-provider" aria-describedby="agent-sharing">
+              <option value="openai">OpenAI</option>
+              <option value="anthropic">Anthropic</option>
+            </select>
+            <p class="hint" id="agent-sharing"></p>
+          </div>
+        </div>
+        <div class="dialog-buttons">
+          <button type="button" class="secondary" id="agent-cancel">Cancel</button>
+          <button
+            type="submit"
+            class="primary"
+            id="agent-submit"
+            aria-keyshortcuts="Meta+Enter"
+            disabled
+          >
+            Start agent <kbd aria-hidden="true">⌘↵</kbd>
+          </button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="agent-summary" class="agent-dialog" aria-labelledby="excerpt-title">
+      <form id="excerpt-form">
+        <h2 id="excerpt-title">Summarize activity</h2>
+        <div>
+          <label for="excerpt-provider">Provider</label>
+          <select id="excerpt-provider">
+            <option value="openai">OpenAI</option>
+            <option value="anthropic">Anthropic</option>
+          </select>
+        </div>
+        <div>
+          <label for="agent-excerpt">Terminal excerpt</label>
+          <textarea
+            id="agent-excerpt"
+            rows="5"
+            maxlength="4000"
+            required
+            spellcheck="false"
+            aria-describedby="excerpt-sharing"
+          ></textarea>
+          <p class="hint" id="excerpt-sharing">Only this excerpt is sent.</p>
+        </div>
+        <div class="dialog-buttons">
+          <button type="button" class="secondary" id="excerpt-cancel">Cancel</button>
+          <button
+            type="submit"
+            class="primary"
+            id="excerpt-submit"
+            aria-keyshortcuts="Meta+Enter"
+            disabled
+          >
+            Summarize <kbd aria-hidden="true">⌘↵</kbd>
+          </button>
+        </div>
+      </form>
+    </dialog>
     <dialog id="confirm">
       <h2 id="confirm-title"></h2>
       <p id="confirm-body"></p>

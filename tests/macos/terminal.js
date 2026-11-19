@@ -100,13 +100,58 @@ try {
   await expect('Command-Shift-A expands the agents section', () => $('#agent-section').open);
   await expect('Agent in the inactive tab', () => $('#agent-section').open &&
     $('#agents button strong')?.textContent === 'Codex');
-  $('#agents button').click();
+  await expect('Manual agent is asking for input', () =>
+    $('#agents .agent-status[data-state="inputRequested"]') !== null);
+  $('#agents .agent-summarize').click();
+  await expect('Manual summary previews the terminal excerpt', () => $('#agent-summary').open &&
+    $('#agent-excerpt').value.includes('Do you want to proceed?'));
+  $('#agent-excerpt').value = 'The fixture is waiting for an answer.';
+  $('#excerpt-submit').click();
+  await expect('Manual summary explains missing key', () =>
+    $('#agents .agent-summary-text.error')?.textContent.includes('OPEN_API_KEY'));
+  $('#agents .agent-link').click();
   await expect('Agent row opens its terminal', () => selected() === first);
   const ports = $('#port-section'), initial = ports.open;
   ports.querySelector('summary').click();
   await expect('Port section toggles', () => ports.open !== initial);
   ports.querySelector('summary').click();
   await expect('Port section restores', () => ports.open === initial);
+  // Launch from the last idle shell so returning focus is unambiguous.
+  await key(28, '8', command);
+  await expect('Idle shell selected for launch', () => selected() === tabs()[7]);
+  const sourceTab = selected(), beforeLaunch = tabs().length;
+  $('#start-agent').click();
+  await expect('Agent launcher opened', () => $('#agent-launch').open);
+  const task = $('#agent-prompt');
+  task.value = 'Review fixture changes\nDescribe `git status` literally.';
+  task.dispatchEvent(new Event('input', {bubbles:true}));
+  await expect('Automatic summaries require opting in', () => !$('#agent-opt-in').checked);
+  $('#agent-opt-in').click();
+  $('#agent-summary-provider').value = 'openai';
+  $('#agent-summary-provider').dispatchEvent(new Event('change', {bubbles:true}));
+  $('#agent-submit').click();
+  await expect('Managed tab has a task title', () => tabs().length === beforeLaunch + 1 &&
+    selected().textContent.includes('Review fixture changes'));
+  const managedTab = selected(), managed = activeTerminal();
+  const managedRow = () => [...document.querySelectorAll('#agents li')]
+    .find(row => row.textContent.includes('Review fixture changes'));
+  await expect('Local tool step survives the automatic summary failure', () =>
+    managedRow()?.querySelector('.agent-summary-text.error')?.textContent.includes('OPEN_API_KEY') &&
+    managedRow()?.querySelector('.agent-detail')?.textContent === 'Running a command' &&
+    managedRow()?.querySelector('.agent-status')?.dataset.state === 'running');
+  await key(28, '8', command);
+  await expect('Source shell stays available during the run', () => selected() === sourceTab);
+  await enter('echo done > "$HOME/finish-tool"');
+  await key(25, '9', command);
+  await expect('Running tab is still available', () => selected() === managedTab);
+  await expect('Structured agent reply reaches the terminal', () =>
+    rows(managed).some(line => line.includes('Fixture review complete.')));
+  await expect('Finished run remains in Agents', () =>
+    managedRow()?.querySelector('.agent-status')?.dataset.state === 'completed');
+  await key(13, 'w', command);
+  await expect('Closing the run returns to the source shell', () =>
+    tabs().length === beforeLaunch && selected() === sourceTab &&
+    document.activeElement === $('.terminal-page.selected textarea.xterm-helper-textarea'));
   await key(38, 'j', command);
   await expect('Assistant opens', () => !$('#assist-panel').hidden);
   $('#question').value = 'What does pwd print?';

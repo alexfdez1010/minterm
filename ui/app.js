@@ -1,9 +1,11 @@
 import { $, element, icon, send } from "./shared.js";
 import { initInspector, refreshInspector, receiveServices, receiveAgents } from "./inspector.js";
+import { Activity } from "./activity.js";
 import { theme, terminalFont, defaultFontSize } from "./theme.js";
 import { initAssistant, receiveAnswer } from "./assistant.js";
 
 const tabs = new Map();
+const activity = new Activity((id) => tabs.get(id)?.term, receiveAgents);
 let active,
   nextId = 1,
   startPath = "~",
@@ -81,7 +83,7 @@ function selectTab(id) {
   fitActive();
   requestContext();
 }
-function newTab() {
+function newTab(task) {
   const from = active;
   const id = nextId++;
   const page = element("div", "terminal-page");
@@ -131,7 +133,8 @@ function newTab() {
     close,
     term,
     fit,
-    title: "",
+    title: task ? task.prompt.trim().replace(/\s+/g, " ").slice(0, 80) : "",
+    managed: !!task,
     git: current()?.git,
     path: current()?.path || startPath,
     state: "opening",
@@ -139,6 +142,11 @@ function newTab() {
   };
   tabs.set(id, tab);
   term.onData((data) => {
+    if (tab.managed) {
+      if (data === "\x03" && tab.state === "live") send("stopJob", { id });
+      return;
+    }
+    activity.input(id);
     if (tab.state === "opening") {
       tab.pending.push(data);
       return;
@@ -148,13 +156,14 @@ function newTab() {
     if (data.includes("\r")) scheduleContext();
   });
   term.onBinary((data) => {
-    if (tab.state === "live") send("binary", { id, data: btoa(data) });
+    if (!tab.managed && tab.state === "live") send("binary", { id, data: btoa(data) });
   });
   term.onResize(({ cols, rows }) => {
-    if (tab.state === "live") send("resize", { id, cols, rows });
+    if (!tab.managed && tab.state === "live") send("resize", { id, cols, rows });
     if (id === active) updateSessionState();
   });
   term.onTitleChange((title) => {
+    if (tab.managed) return;
     tab.title = title
       .replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, "")
       .slice(0, 180);
@@ -162,7 +171,12 @@ function newTab() {
   });
   updateTab(tab);
   selectTab(id);
-  send("open", { id, from, cols: term.cols, rows: term.rows });
+  if (task) {
+    activity.start(id, task);
+    send("startJob", { id, from, agent: task.agent, prompt: task.prompt });
+  } else {
+    send("open", { id, from, cols: term.cols, rows: term.rows });
+  }
 }
 function discard(id) {
   const tab = tabs.get(id);
@@ -170,6 +184,7 @@ function discard(id) {
   const order = [...tabs.keys()];
   const index = order.indexOf(id);
   tabs.delete(id);
+  activity.close(id);
   tab.term.dispose();
   tab.page.remove();
   tab.row.remove();
@@ -206,7 +221,11 @@ function showConfirmation({ id }) {
   $("cancel").focus();
 }
 function command(name) {
-  if ($("confirm").open) return;
+  const dialog = document.querySelector("dialog[open]");
+  if (dialog) {
+    if (name === "close") dialog.close();
+    return;
+  }
   switch (name) {
     case "new":
       newTab();
@@ -225,7 +244,7 @@ function command(name) {
       setPanel("inspector", false);
       $("agent-section").open = true;
       refreshInspector();
-      ($("agents").querySelector("button") || $("agent-section").querySelector("summary")).focus();
+      ($("agents").querySelector(".agent-link") || $("start-agent")).focus();
       break;
     case "focus":
       if (document.body.classList.toggle("focus-mode")) {
@@ -270,7 +289,8 @@ window.minterm = {
           updateTab(tab);
           if (tab.pending.length) send("write", { id: tab.id, data: tab.pending.join("") });
           tab.pending.length = 0;
-          send("resize", { id: tab.id, cols: tab.term.cols, rows: tab.term.rows });
+          if (!tab.managed)
+            send("resize", { id: tab.id, cols: tab.term.cols, rows: tab.term.rows });
           send("context", { id: tab.id });
           if (active === tab.id) updateSessionState();
         }
@@ -283,6 +303,8 @@ window.minterm = {
         if (tab) {
           tab.state = name === "failed" ? "failed" : "ended";
           tab.reason = data.error || data.status;
+          if (tab.managed && name === "failed")
+            activity.update({ id: tab.id, state: "failed", detail: tab.reason });
           if (active === tab.id) updateSessionState();
         }
         break;
@@ -300,7 +322,13 @@ window.minterm = {
         receiveServices(data);
         break;
       case "agents":
-        receiveAgents(data);
+        activity.scan(data);
+        break;
+      case "jobStatus":
+        activity.update(data);
+        break;
+      case "summary":
+        activity.receiveSummary(data);
         break;
       case "notice":
         notice(data);
@@ -318,7 +346,7 @@ window.minterm = {
   },
 };
 
-$("new-tab").onclick = newTab;
+$("new-tab").onclick = () => newTab();
 $("restart").onclick = () => {
   const old = active;
   newTab();
@@ -342,6 +370,12 @@ initInspector(
     const index = [...tabs.keys()].indexOf(id);
     return index < 0 ? "Shell" : "Tab " + (index + 1) + " · " + tabs.get(id).label.textContent;
   },
+  (task) => {
+    if (window.innerWidth <= 770) setPanel(null, false);
+    newTab(task);
+  },
+  (id) => activity.preview(id),
+  (input) => activity.summarize(input),
 );
 initAssistant();
 $("titlebar").addEventListener("mousedown", (e) => {
@@ -350,7 +384,7 @@ $("titlebar").addEventListener("mousedown", (e) => {
 document.addEventListener(
   "keydown",
   (e) => {
-    if ($("confirm").open || e.isComposing) return;
+    if (document.querySelector("dialog[open]") || e.isComposing) return;
     if (e.metaKey && !e.altKey && !e.shiftKey && ["t", "w"].includes(e.key.toLowerCase())) {
       e.preventDefault();
       if (!e.repeat) command(e.key.toLowerCase() === "t" ? "new" : "close");
@@ -360,8 +394,13 @@ document.addEventListener(
     } else if (e.metaKey && e.shiftKey && ["BracketLeft", "BracketRight"].includes(e.code)) {
       e.preventDefault();
       changeTab(e.code === "BracketLeft" ? -1 : 1);
-    } else if (e.metaKey && !e.altKey && !e.ctrlKey && !e.shiftKey &&
-      (/^Digit[1-9]$/.test(e.code) || /^[1-9]$/.test(e.key))) {
+    } else if (
+      e.metaKey &&
+      !e.altKey &&
+      !e.ctrlKey &&
+      !e.shiftKey &&
+      (/^Digit[1-9]$/.test(e.code) || /^[1-9]$/.test(e.key))
+    ) {
       e.preventDefault();
       e.stopPropagation();
       const number = Number(/^Digit[1-9]$/.test(e.code) ? e.code.slice(-1) : e.key);
