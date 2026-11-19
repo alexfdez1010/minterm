@@ -9,7 +9,8 @@ Minterm is a macOS terminal for CLI agents. Keep terminal input responsive durin
 | CLI, launch directory and hidden key prompt | `src/main.rs`, `src/key_command.rs` |
 | AppKit window, native menus and local asset boundary | `src/lib.rs`, `src/menu.rs`, `src/assets.rs` |
 | Typed UI messages and background jobs | `src/app.rs` |
-| Login shells, PTY I/O, backpressure and cleanup | `src/sessions.rs` |
+| PTY I/O, backpressure and cleanup | `src/sessions.rs` |
+| Login shell integration and Git prompt | `src/prompt.rs`, `shell/` |
 | Agent recognition, Git, TCP listeners and Docker | `src/agents.rs`, `src/inspect.rs` |
 | Provider requests, encrypted store and native Settings | `src/assistant.rs`, `src/credentials.rs`, `src/settings.rs`, `macos/settings.m` |
 | Tabs, workspace and inspector | `ui/app.js`, `ui/inspector.js`, `ui/assistant.js`, `ui/app.css` |

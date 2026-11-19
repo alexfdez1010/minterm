@@ -6,6 +6,7 @@ mod credentials;
 mod inspect;
 pub mod key_command;
 mod menu;
+mod prompt;
 mod sessions;
 mod settings;
 
@@ -54,6 +55,7 @@ pub fn launch(
     let view = WebViewBuilder::new()
         // PTYs need renderer acknowledgements while the window is minimized.
         .with_background_throttling(wry::BackgroundThrottlingPolicy::Disabled)
+        .with_incognito(!visible)
         .with_url(assets::URL)
         .with_background_color((19, 22, 24, 255))
         .with_custom_protocol("minterm".into(), assets::serve)

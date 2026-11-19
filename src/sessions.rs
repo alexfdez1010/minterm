@@ -1,3 +1,4 @@
+use crate::prompt::ShellIntegration;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use std::{
@@ -29,6 +30,7 @@ pub enum SessionEvent {
 }
 
 pub struct Sessions {
+    prompt: ShellIntegration,
     tabs: HashMap<u32, Session>,
     retiring: Vec<JoinHandle<()>>,
     notify: Notify,
@@ -53,6 +55,7 @@ struct Queue {
 impl Sessions {
     pub fn new(notify: impl Fn(SessionEvent) + Send + Sync + 'static) -> Self {
         Self {
+            prompt: ShellIntegration::default(),
             tabs: HashMap::new(),
             retiring: Vec::new(),
             notify: Arc::new(notify),
@@ -64,6 +67,9 @@ impl Sessions {
             return Err("This session is already open".into());
         }
         let mut cmd = CommandBuilder::new_default_prog();
+        if let Err(error) = self.prompt.configure(&mut cmd) {
+            eprintln!("Could not install the Minterm prompt: {error}");
+        }
         cmd.cwd(cwd);
         // Make the bundled CLI available to login shells started from Finder.
         if let Ok(exe) = std::env::current_exe()
@@ -257,6 +263,7 @@ impl Sessions {
         for worker in self.retiring.drain(..) {
             let _ = worker.join();
         }
+        self.prompt = ShellIntegration::default();
     }
 }
 
@@ -573,17 +580,82 @@ mod tests {
     }
 
     fn read_until(sessions: &Sessions, rx: &Receiver<SessionEvent>, marker: &str) -> String {
-        let mut received = String::new();
-        while !received.contains(marker) {
+        let mut received = Vec::new();
+        loop {
             match next(rx) {
                 SessionEvent::Output { id: ID, data } => {
-                    received.push_str(&String::from_utf8(STANDARD.decode(data).unwrap()).unwrap());
+                    received.extend(STANDARD.decode(data).unwrap());
                     sessions.ack_output(ID);
+                    if received
+                        .windows(marker.len())
+                        .any(|part| part == marker.as_bytes())
+                    {
+                        return String::from_utf8(received).unwrap();
+                    }
                 }
                 other => panic!("Expected {marker:?} before {other:?}"),
             }
         }
-        received
+    }
+
+    #[test]
+    fn login_prompts_keep_profile_and_treat_git_names_as_data() {
+        let branch = "topic/$(touch${IFS}BRANCH_INJECTION)%F{blue}";
+        let directory = "work$(touch${IFS}DIR_INJECTION)%n";
+        for shell in ["/bin/bash", "/bin/zsh"] {
+            let fixture = tempfile::tempdir().unwrap();
+            let home = fixture.path().join("home");
+            let work = fixture.path().join(directory);
+            std::fs::create_dir(&home).unwrap();
+            std::fs::create_dir_all(work.join(".git")).unwrap();
+            let profile = if shell.ends_with("bash") {
+                ".bash_profile"
+            } else {
+                ".zshrc"
+            };
+            std::fs::write(
+                home.join(profile),
+                "alias testprofile='printf PROFILE_KEPT'\n",
+            )
+            .unwrap();
+            let head = work.join(".git/HEAD");
+            std::fs::write(&head, format!("ref: refs/heads/{branch}\n")).unwrap();
+
+            let (tx, rx) = mpsc::channel();
+            let mut sessions = Sessions::new(move |event| {
+                let _ = tx.send(event);
+            });
+            let mut cmd = CommandBuilder::new_default_prog();
+            cmd.env_clear();
+            cmd.env("HOME", &home);
+            cmd.env("SHELL", shell);
+            cmd.env("LANG", "en_US.UTF-8");
+            cmd.env("TERM", "xterm-256color");
+            cmd.env("BASH_SILENCE_DEPRECATION_WARNING", "1");
+            cmd.env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin");
+            cmd.cwd(&work);
+            sessions.prompt.configure(&mut cmd).unwrap();
+            sessions.spawn(ID, &work, size(180, 24), cmd).unwrap();
+            let initial = read_until(&sessions, &rx, "❯");
+            assert!(
+                initial.contains(directory) && initial.contains(branch),
+                "{shell}: {initial:?}"
+            );
+
+            std::fs::write(&head, "1234567890abcdef1234567890abcdef12345678\n").unwrap();
+            sessions.write(ID, b"testprofile; false\r").unwrap();
+            let updated = read_until(&sessions, &rx, "❯");
+            assert!(
+                updated.contains("PROFILE_KEPT") && updated.contains("1234567"),
+                "{shell}: {updated:?}"
+            );
+            assert!(
+                updated.contains("33m"),
+                "Missing failure color from {shell}: {updated:?}"
+            );
+            assert!(!work.join("BRANCH_INJECTION").exists());
+            assert!(!work.join("DIR_INJECTION").exists());
+        }
     }
 
     #[test]

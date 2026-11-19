@@ -19,6 +19,7 @@ The fonts ship locally. Wait for the terminal font before measuring the first gr
 ## Components and layout
 
 - Tabs share the native title bar with the new-tab and tool buttons. Icon buttons have an accessible name and a tooltip. The active tab has a filled surface and `aria-selected`.
+- The shell prompt on zsh and Bash uses the working directory, an optional Git ref and a chevron. Blue marks the directory, green marks the branch, and amber indicates a failed command. Keep prompt segments within the terminal cell grid.
 - The context row holds the current folder and Git branch. Show the complete path on hover. An exited shell gets a recovery action next to its session.
 - The inspector uses disclosure controls. Agents starts expanded. Ports and databases start closed and request data when opened. On narrower windows the inspector overlays the terminal so full-screen CLI layouts retain their width.
 - Use the spacing scale for ordinary control groups. Use alignment and surface changes to group information. Keep the native traffic-light clearance and the measured terminal cell dimensions explicit.
