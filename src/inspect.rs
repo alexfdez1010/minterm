@@ -2,6 +2,7 @@ use serde::Serialize;
 use std::env;
 use std::fs;
 use std::io::{self, Read};
+use std::net::IpAddr;
 use std::os::fd::OwnedFd;
 use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
@@ -31,13 +32,28 @@ pub struct Database {
     pub image: String,
     pub ports: String,
     pub state: String,
+    pub bindings: Vec<Binding>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct Binding {
+    address: String,
+    start: u16,
+    end: u16,
+    protocol: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum Service {
+    Listener(Port),
+    Database(Database),
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Services {
-    pub ports: Vec<Port>,
-    pub databases: Vec<Database>,
+    pub entries: Vec<Service>,
     pub ports_error: Option<String>,
     pub docker_error: Option<String>,
 }
@@ -318,6 +334,7 @@ fn parse_databases(output: &str) -> Vec<Database> {
                 image: image.to_owned(),
                 state: state.to_owned(),
                 ports: ports.to_owned(),
+                bindings: ports.split(',').filter_map(published_binding).collect(),
             });
         }
     }
@@ -325,30 +342,54 @@ fn parse_databases(output: &str) -> Vec<Database> {
     databases
 }
 
-fn prioritize_database_ports(ports: &mut [Port], databases: &[Database]) {
-    let published: Vec<_> = databases
-        .iter()
-        .flat_map(|db| db.ports.split(','))
-        .filter_map(|mapping| {
-            let (host, target) = mapping.trim().split_once("->")?;
-            if !target.ends_with("/tcp") {
-                return None;
-            }
-            let (_, binding) = host.rsplit_once(':')?;
-            let (start, end) = binding.split_once('-').unwrap_or((binding, binding));
-            Some(start.parse::<u16>().ok()?..=end.parse::<u16>().ok()?)
-        })
-        .collect();
-    for port in ports.iter_mut() {
-        if matches!(
-            port.process.as_str(),
-            "com.docker.backend" | "docker-proxy" | "vpnkit" | "gvproxy"
-        ) && published.iter().any(|range| range.contains(&port.port))
-        {
-            port.kind = Some("Docker DB".to_owned());
-        }
+fn published_binding(mapping: &str) -> Option<Binding> {
+    let (host, target) = mapping.trim().split_once("->")?;
+    let (_, protocol) = target.rsplit_once('/')?;
+    let (address, range) = host.rsplit_once(':')?;
+    let (start, end) = range.split_once('-').unwrap_or((range, range));
+    let start = start.parse().ok()?;
+    let end = end.parse().ok()?;
+    (start <= end).then(|| Binding {
+        address: address.to_owned(),
+        start,
+        end,
+        protocol: protocol.to_owned(),
+    })
+}
+
+fn same_bind_address(listener: &str, docker: &str) -> bool {
+    let ip = |s: &str| s.trim_matches(['[', ']']).parse::<IpAddr>().ok();
+    match (ip(listener), ip(docker)) {
+        (Some(a), Some(b)) => a == b,
+        // lsof denotes both IPv4 and IPv6 wildcard listeners with an asterisk.
+        (None, Some(b)) if listener == "*" => b.is_unspecified(),
+        _ => listener == docker,
     }
-    ports.sort_by_key(|p| (p.kind.is_none(), p.port));
+}
+
+fn merge_services(ports: Vec<Port>, databases: Vec<Database>) -> Vec<Service> {
+    let mut entries: Vec<_> = ports
+        .into_iter()
+        .filter(|port| {
+            !databases.iter().flat_map(|db| &db.bindings).any(|binding| {
+                binding.protocol == "tcp"
+                    && (binding.start..=binding.end).contains(&port.port)
+                    && same_bind_address(&port.address, &binding.address)
+            })
+        })
+        .map(Service::Listener)
+        .collect();
+    entries.extend(databases.into_iter().map(Service::Database));
+    entries.sort_by_key(|entry| match entry {
+        Service::Listener(port) => (if port.kind.is_some() { 0 } else { 2 }, port.port),
+        Service::Database(db) => db
+            .bindings
+            .iter()
+            .map(|b| b.start)
+            .min()
+            .map_or((1, 0), |port| (0, port)),
+    });
+    entries
 }
 
 fn databases() -> Result<Vec<Database>, String> {
@@ -407,12 +448,8 @@ pub fn services() -> Services {
     });
     let ports_error = ports.as_ref().err().cloned();
     let docker_error = databases.as_ref().err().cloned();
-    let mut ports = ports.unwrap_or_default();
-    let databases = databases.unwrap_or_default();
-    prioritize_database_ports(&mut ports, &databases);
     Services {
-        ports,
-        databases,
+        entries: merge_services(ports.unwrap_or_default(), databases.unwrap_or_default()),
         ports_error,
         docker_error,
     }
@@ -460,10 +497,39 @@ mod tests {
             "mcr.microsoft.com/mssql/server:2022-latest"
         ));
         assert!(!is_database_image("example/server:latest"));
-        let mut ports = parse_ports("p4\0cnode\0n*:5400\0\np9\0ccom.docker.backend\0n*:5434\0");
-        prioritize_database_ports(&mut ports, &dbs);
-        assert_eq!(ports[0].port, 5434);
-        assert_eq!(ports[0].kind.as_deref(), Some("Docker DB"));
+        let ports = parse_ports("p4\0cnode\0n*:5400\0\np9\0ccom.docker.backend\0n*:5434\0");
+        let services = merge_services(ports, dbs);
+        assert_eq!(services.len(), 3);
+        assert!(
+            matches!(&services[0], Service::Database(db) if db.name == "finance" && db.bindings[0].start == 5434)
+        );
+        assert!(matches!(&services[2], Service::Listener(p) if p.process == "node"));
+    }
+
+    #[test]
+    fn docker_merges_only_matching_tcp_addresses_including_ranges_and_ipv6() {
+        let dbs = parse_databases(
+            "db\tpostgres\trunning\t127.0.0.1:5400-5402->5432-5434/tcp, [::]:6380->6379/tcp, 127.0.0.1:5500->5500/udp\ninternal\tredis\trunning\t6379/tcp",
+        );
+        let listeners = parse_ports(
+            "p1\0cproxy\0n127.0.0.1:5401\0n10.0.0.1:5401\0n*:6380\0n[::1]:6380\0n127.0.0.1:5500\0n*:6379\0",
+        );
+        let entries = merge_services(listeners, dbs);
+        assert_eq!(entries.len(), 6);
+        assert!(
+            entries.iter().any(|entry| matches!(entry, Service::Database(db) if db.name == "internal" && db.bindings.is_empty()))
+        );
+        let remaining: Vec<_> = entries
+            .iter()
+            .filter_map(|e| match e {
+                Service::Listener(p) => Some((p.address.as_str(), p.port)),
+                _ => None,
+            })
+            .collect();
+        assert!(remaining.contains(&("10.0.0.1", 5401)));
+        assert!(remaining.contains(&("[::1]", 6380)));
+        assert!(remaining.contains(&("127.0.0.1", 5500)));
+        assert!(remaining.contains(&("*", 6379)));
     }
 
     #[test]

@@ -39,7 +39,7 @@ try {
   await expect('Terminal directly below the tabs', () => !$('.workspace .context') &&
     $('.workspace').firstElementChild === $('#terminals'));
   await expect('Only Agents initially expanded', () => $('#agent-section').open &&
-    !$('#port-section').open && !$('#db-section').open);
+    !$('#port-section').open && !$('#db-section'));
   const terminal = activeTerminal();
   const hasPrompt = (folder, branch) => rows(terminal).some(line =>
     line.includes(folder) && line.includes(branch) && line.includes('❯'));

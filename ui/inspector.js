@@ -6,8 +6,8 @@ let services,
   scanPending = false,
   agentsPending = false,
   lastScan = 0;
-export function initInspector(select, label, launch, preview, summarize) {
-  initAgents(select, label, launch, preview, summarize);
+export function initInspector(select, label, launch, preview, summarize, preferredAgent) {
+  initAgents(select, label, launch, preview, summarize, preferredAgent);
   for (const section of document.querySelectorAll("#inspect-panel details")) {
     section.addEventListener("toggle", () => {
       if (section.open && !$("sidebar").hidden && !$("inspect-panel").hidden) refreshInspector();
@@ -29,8 +29,7 @@ export function refreshInspector(force = false) {
     agentsPending = true;
     send("agents");
   }
-  const servicesVisible = $("port-section").open || $("db-section").open;
-  if (servicesVisible && (force || Date.now() - lastScan > 10000)) scan();
+  if ($("port-section").open && (force || Date.now() - lastScan > 10000)) scan();
 }
 export function receiveServices(payload) {
   services = payload;
@@ -51,44 +50,38 @@ function scan() {
 }
 function renderServices() {
   if (!services) return;
-  const ports = services.ports.filter((port) => showAll || port.kind);
+  const entries = services.entries.filter((entry) => showAll || entry.type === "database" || entry.kind);
   $("dev-filter").setAttribute("aria-pressed", String(!showAll));
   $("all-filter").setAttribute("aria-pressed", String(showAll));
-  $("port-count").textContent = String(ports.length);
-  $("ports").replaceChildren(
-    ...ports.map((port) => {
-      const row = element("li");
-      row.append(
-        element("span", "port-number", ":" + port.port),
-        element("span", "service-name", port.process),
-        element(
-          "span",
-          "service-detail",
-          [port.kind, "PID " + port.pid].filter(Boolean).join(" · "),
-        ),
-      );
-      row.title = port.address + ":" + port.port + "  |  " + port.process + "  |  PID " + port.pid;
-      if (port.kind) row.lastChild.title = "Common use for this port: " + port.kind;
-      return row;
-    }),
-  );
-  $("port-empty").textContent =
-    services.portsError ||
-    (showAll ? "No listening TCP ports found." : "No development ports in use.");
-  $("port-empty").hidden = !!ports.length && !services.portsError;
-  $("db-count").textContent = String(services.databases.length);
-  $("databases").replaceChildren(
-    ...services.databases.map((db) => {
-      const row = element("li");
-      row.append(
-        element("span", "service-name", db.name),
-        element("span", "db-state", db.state),
-        element("span", "service-detail", db.image),
-        element("span", "service-detail", db.ports || "No published ports"),
-      );
-      return row;
-    }),
-  );
-  $("db-empty").textContent = services.dockerError || "No database containers running.";
-  $("db-empty").hidden = !!services.databases.length && !services.dockerError;
+  $("port-count").textContent = String(entries.length);
+  $("ports").replaceChildren(...entries.map(serviceRow));
+  const errors = [services.portsError, services.dockerError].filter(Boolean);
+  $("service-errors").textContent = errors.join(" ");
+  $("service-errors").hidden = !errors.length;
+  $("port-empty").textContent = showAll ? "No listening ports found." : "No development ports in use.";
+  $("port-empty").hidden = entries.length > 0 || errors.length > 0;
+}
+
+function serviceRow(entry) {
+  const row = element("li");
+  if (entry.type === "database") {
+    const binding = entry.bindings[0];
+    const metadata = ["Docker", entry.state, entry.image].filter(Boolean).join(" · ");
+    const mapping = binding ? entry.ports : ["No host port", entry.ports].filter(Boolean).join(" · ");
+    row.append(
+      element("span", "port-number", binding ? ":" + binding.start : "—"),
+      element("span", "service-name", entry.name),
+      element("span", "service-detail", metadata),
+      element("span", "service-detail", mapping.replaceAll("->", " → ")),
+    );
+  } else {
+    const details = [entry.kind, "PID " + entry.pid].filter(Boolean).join(" · ");
+    row.append(
+      element("span", "port-number", ":" + entry.port),
+      element("span", "service-name", entry.process),
+      element("span", "service-detail", details),
+    );
+    row.title = entry.address + ":" + entry.port + "  |  " + entry.process + "  |  " + details;
+  }
+  return row;
 }

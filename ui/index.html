@@ -85,7 +85,7 @@
             </details>
             <details id="port-section">
               <summary>
-                <i data-icon="ports"></i><span>Listening ports</span
+                <i data-icon="ports"></i><span>Ports</span
                 ><span class="count" id="port-count"></span><i data-icon="chevron"></i>
               </summary>
               <div class="filters" role="group" aria-label="Port filter">
@@ -94,14 +94,7 @@
               </div>
               <ul class="rows" id="ports" aria-label="Listening ports"></ul>
               <p class="empty" id="port-empty">Checking listeners…</p>
-            </details>
-            <details id="db-section">
-              <summary>
-                <i data-icon="database"></i><span>Docker databases</span
-                ><span class="count" id="db-count"></span><i data-icon="chevron"></i>
-              </summary>
-              <ul class="rows" id="databases" aria-label="Docker databases"></ul>
-              <p class="empty" id="db-empty">Checking Docker…</p>
+              <p class="empty" id="service-errors" hidden></p>
             </details>
           </div>
         </section>
