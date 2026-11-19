@@ -1,6 +1,6 @@
 # Minterm design system
 
-The terminal owns the window. Leave the command line under the cursor when panels open, and return focus to the selected session when they close. Keep window management, menu shortcuts, secure entry and Settings native to macOS.
+The terminal owns the window. Leave the command line under the cursor when panels open, and return focus to the selected session when they close. Keep window management, menu shortcuts and Settings native to macOS.
 
 ## Type and color
 
@@ -22,10 +22,10 @@ The fonts ship locally. Wait for the terminal font before measuring the first gr
 - The shell prompt on zsh and Bash uses the working directory, an optional Git ref and a chevron. Blue marks the directory, green marks the branch, and amber indicates a failed command. Keep prompt segments within the terminal cell grid.
 - The terminal starts directly below the tabs. A tab tooltip carries the full path and tracked changes even while a full-screen CLI covers the prompt. An exited shell gets a recovery action next to its session.
 - The inspector uses disclosure controls. Agents starts expanded. Ports starts closed. It combines local listeners and Docker port mappings in one scan and one list. On narrower windows the inspector overlays the terminal so full-screen CLI layouts retain their width.
-- Switching modes keeps the shell and its agent inside the selected tab. The agent command field sits next to the terminal it will use.
-- Agent rows use the task as the primary label and the current action as supporting text. Reserve attention colors and text for confirmed process limits or a visible request for input. A summary identifies its AI origin.
+- Switching modes keeps the shell and its agent inside the selected tab. At the shell prompt, a robot replaces the chevron while the user enters an agent task. Keep the directory, branch and terminal grid aligned when switching modes.
+- Agent rows use the task as the primary label and the current action as supporting text. Reserve attention colors and text for confirmed process limits or a visible request for input.
 - Use the spacing scale for ordinary control groups. Use alignment and surface changes to group information. Keep the native traffic-light clearance and the measured terminal cell dimensions explicit.
-- Preserve native Settings labels and controls. The assistant’s provider selection, question and reply belong beside the shell.
+- Keep the default agent, its executable and the mode shortcut in native Settings.
 
 ## Checking a change
 

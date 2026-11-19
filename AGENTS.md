@@ -16,16 +16,16 @@ For local development, `./macos/bundle.sh` builds the signed app in `dist/Minter
 
 | Area | Entry point |
 | --- | --- |
-| CLI, launch directory and hidden key prompt | `src/main.rs`, `src/key_command.rs` |
+| CLI and launch directory | `src/main.rs` |
 | AppKit window, native menus and local asset boundary | `src/lib.rs`, `src/menu.rs`, `src/assets.rs` |
 | Typed UI messages and session ownership | `src/app.rs` |
 | PTY I/O, backpressure and cleanup | `src/sessions.rs` |
 | Login shell integration and Git prompt | `src/prompt.rs`, `shell/` |
 | Agent recognition, Git, TCP listeners and Docker | `src/agents.rs`, `src/inspect.rs` |
 | Interactive agent executable resolution and launch | `src/agent_cli.rs`, `src/sessions.rs` |
-| Agent activity, launch dialog and summaries | `ui/activity.js`, `ui/agents.js` |
-| Provider requests, encrypted store and native Settings | `src/assistant.rs`, `src/assistant/ollama.rs`, `src/credentials.rs`, `src/preferences.rs`, `macos/settings.m`, `macos/preferences.m` |
-| Tabs, agent mode and inspector | `ui/app.js`, `ui/command.js`, `ui/inspector.js`, `ui/assistant.js`, `ui/app.css` |
+| Local agent activity and launch dialog | `ui/activity.js`, `ui/agents.js` |
+| Agent preferences and native Settings | `src/settings.rs`, `src/preferences.rs`, `macos/settings.m`, `macos/preferences.m` |
+| Tabs, agent mode and inspector | `ui/app.js`, `ui/command.js`, `ui/inspector.js`, `ui/app.css` |
 
 Use [DESIGN.md](DESIGN.md) and the tokens in `ui/tokens.css` when extending the workspace.
 
@@ -35,9 +35,8 @@ The project skill [minterm-macos](.agents/skills/minterm-macos/SKILL.md) covers 
 
 - The UI and renderer ship as local assets embedded by Rust. Register new modules in `src/assets.rs`. Preserve the local origin check, content policy and navigation boundary.
 - Keep shell output as bytes through the PTY. Acknowledge each output block after the renderer consumes it. Each tab owns a shell and an optional interactive agent with a separate PTY. Address input, resize and output acknowledgements by PTY ID, including while that surface is hidden. Resolve the shell’s live working directory when starting its agent.
-- Let the OS menu own macOS commands. Keep new-tab creation and selection on the input path. Run Git, Docker, process scans, provider calls and credential writes outside that path.
+- Let the OS menu own macOS commands. Keep new-tab creation and selection on the input path. Run Git, Docker and process scans outside that path.
 - Keep service discovery read-only and bounded. Introduce new agent recognition with executable or package-entrypoint fixtures. Only process metadata needed by the UI crosses the bridge.
-- A provider receives the submitted question, an explicitly reviewed excerpt, or the initial agent task, fixed activity labels and state. Route automatic summaries to the running CLI’s own provider with its configured cloud key or Ollama endpoint. Store credentials through `src/credentials.rs`; the webview never needs a saved key. Use a temporary home and dummy keys to test persistence, rotation and concurrent opens.
 - Preserve the upstream JS and licenses in `ui/vendor/`. Make application changes in the adjacent source modules. Check the bundled app if a change affects paths, signing or macOS startup.
 
 Build and test commands are in [README.md](README.md#development). Update the keyboard table when changing a shortcut.
