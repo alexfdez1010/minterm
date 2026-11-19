@@ -4,7 +4,9 @@ Minterm is a small macOS terminal for working with command-line agents. Each tab
 
 ## Install and open Minterm
 
-On macOS 13 or later, install Rust 1.90 or newer and the Xcode Command Line Tools. You can get the command line tools by running `xcode-select --install`. [Install Rust](https://rust-lang.org/tools/install/)
+On macOS 13 or later, download the ZIP for Apple Silicon (`arm64`) or Intel (`x86_64`) from [GitHub Releases](https://github.com/alexfdez1010/minterm/releases). Unzip it and move Minterm to Applications. Release builds use an ad hoc signature. macOS may require you to approve the first launch in System Settings → Privacy & Security.
+
+To build from source, install Rust 1.90 or newer and the Xcode Command Line Tools. You can get the command line tools by running `xcode-select --install`. [Install Rust](https://rust-lang.org/tools/install/)
 
 ```sh
 git clone https://github.com/alexfdez1010/minterm.git
@@ -23,6 +25,8 @@ To start Minterm in a project, run this command from that project's directory.
 The Rust host uses macOS WebKit and a bundled copy of xterm.js. Building and running the terminal requires neither Node.js nor an online frontend. Docker is optional.
 
 ## Working in the terminal
+
+Minterm disables macOS inline text predictions in its terminal and task fields so suggested text cannot repeat characters already sent to the shell or an agent.
 
 | Shortcut | Action |
 | --- | --- |
@@ -95,6 +99,8 @@ cargo test --locked --features ui-tests --test macos-ui
 ```
 
 The last command drives AppKit and WebKit in a logged-in macOS session with an isolated home. See [AGENTS.md](AGENTS.md) for the source layout and the repository skill for changing terminal behavior.
+
+To publish a release, set the version in `Cargo.toml`, `Cargo.lock` and `macos/Info.plist`, then push the matching tag, such as `v0.1.0`. GitHub Actions tests and packages both architectures before publishing the ZIPs.
 
 The embedded renderer is xterm.js 6.0.0 with its fit addon 0.11.0. Their upstream licenses are included in [ui/vendor](ui/vendor).
 

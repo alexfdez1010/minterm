@@ -4,7 +4,14 @@
 export function fixTerminalInput(term) {
   const helper = term._core?._compositionHelper;
   const { element, textarea } = term;
-  if (!element || !textarea || typeof helper?._handleAnyTextareaChanges !== "function") return;
+  if (!element || !textarea) return;
+
+  textarea.setAttribute("writingsuggestions", "false");
+  // The PTY has already received the text WebKit wants to replace.
+  textarea.addEventListener("beforeinput", (event) => {
+    if (event.inputType === "insertReplacementText" && !event.isComposing) event.preventDefault();
+  });
+  if (typeof helper?._handleAnyTextareaChanges !== "function") return;
 
   let timer, before;
   function flush() {

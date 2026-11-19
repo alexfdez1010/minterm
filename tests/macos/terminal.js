@@ -116,6 +116,13 @@ try {
     for (const letter of 'TRACE') await key(0, letter, shift, letter.toLowerCase());
     await expect('Native keys reached xterm once', () => emitted.join('') === 'TRACE');
     await expect('Recent input remains in the helper textarea', () => input.value === 'TRACE');
+    replaceInput('', 0);
+    const replacement = new InputEvent('beforeinput', {
+      inputType: 'insertReplacementText', data: 'TRACE again', bubbles: true, cancelable: true,
+    });
+    if (input.dispatchEvent(replacement)) input.setRangeText('TRACE again', 0, input.value.length, 'end');
+    await pause(30);
+    if (emitted.join('') !== 'TRACE') throw new Error('Automatic replacement reached the terminal');
     for (const [replacement, replaced] of [['é', 1], ['🙂', 1], ['!', 0], ['!', 0]]) {
       const previous = emitted.length;
       replaceInput(replacement, replaced);
