@@ -14,25 +14,18 @@ on:
 env:
   RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
-permissions:
-  contents: read
-
 jobs:
-  build:
-    strategy:
-      matrix:
-        include:
-          - runner: macos-15
-            arch: arm64
-          - runner: macos-15-intel
-            arch: x86_64
-    runs-on: ${{ matrix.runner }}
+  release:
+    runs-on: macos-15
+    permissions:
+      contents: write
     env:
       MACOSX_DEPLOYMENT_TARGET: '13.0'
     steps:
       - uses: actions/checkout@v5
         with:
           ref: refs/tags/${{ env.RELEASE_TAG }}
+          persist-credentials: false
       - name: Check release version
         run: |
           version=$(plutil -extract CFBundleShortVersionString raw -o - macos/Info.plist)
@@ -43,27 +36,11 @@ jobs:
           rustup default stable
           cargo test --locked
           ./macos/bundle.sh
-          test "$(lipo -archs dist/Minterm.app/Contents/MacOS/minterm)" = "${{ matrix.arch }}"
-          ditto -c -k --keepParent dist/Minterm.app "dist/Minterm-${{ matrix.arch }}.zip"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Minterm-${{ matrix.arch }}
-          path: dist/Minterm-${{ matrix.arch }}.zip
-          if-no-files-found: error
-
-  publish:
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: Minterm-*
-          merge-multiple: true
-      - name: Publish both builds
+          test "$(lipo -archs dist/Minterm.app/Contents/MacOS/minterm)" = arm64
+          ditto -c -k --keepParent dist/Minterm.app dist/Minterm-arm64.zip
+      - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
-            --verify-tag --generate-notes Minterm-arm64.zip Minterm-x86_64.zip
+            --verify-tag --generate-notes dist/Minterm-arm64.zip
