@@ -1,5 +1,17 @@
 #import "agent_commands.h"
 
+@interface MTCommandCell : NSTextFieldCell
+@end
+
+@implementation MTCommandCell
+- (void)drawInteriorWithFrame:(NSRect)frame inView:(NSView *)view {
+    CGFloat height = MIN(NSHeight(frame), self.cellSize.height);
+    frame.origin.y += floor((NSHeight(frame) - height) / 2);
+    frame.size.height = height;
+    [super drawInteriorWithFrame:frame inView:view];
+}
+@end
+
 static NSString *agentTitle(NSString *agent) {
     return @{@"codex": @"Codex", @"claude": @"Claude Code", @"opencode": @"OpenCode"}[agent] ?: agent;
 }
@@ -41,9 +53,12 @@ static void addBaseAgents(NSPopUpButton *popup) {
         column.title = key.capitalizedString;
         column.minWidth = 44;
         column.width = [widths[key] doubleValue];
-        if ([key isEqual:@"default"]) {
-            [column.dataCell setAlignment:NSTextAlignmentCenter];
-        }
+        MTCommandCell *cell = [[MTCommandCell alloc] initTextCell:@""];
+        cell.font = [column.dataCell font];
+        cell.usesSingleLineMode = YES;
+        cell.lineBreakMode = NSLineBreakByTruncatingTail;
+        if ([key isEqual:@"default"]) cell.alignment = NSTextAlignmentCenter;
+        column.dataCell = cell;
         if (![key isEqual:@"command"]) column.resizingMask = NSTableColumnUserResizingMask;
         [_table addTableColumn:column];
     }
