@@ -13,7 +13,7 @@ use std::{
     },
     path::{Path, PathBuf},
     ptr,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, Weak},
     thread::{self, JoinHandle},
     time::Duration,
 };
@@ -43,13 +43,25 @@ pub struct Sessions {
     notify: Notify,
 }
 
+type Master = Mutex<Box<dyn MasterPty + Send>>;
+
 struct Session {
-    master: Box<dyn MasterPty + Send>,
+    master: Weak<Master>,
     shell: i32,
     start: PathBuf,
     queue: Arc<Mutex<Queue>>,
     wake: UnixStream,
     worker: JoinHandle<()>,
+}
+
+impl Session {
+    fn foreground_group(&self) -> Option<i32> {
+        self.master
+            .upgrade()?
+            .lock()
+            .unwrap()
+            .process_group_leader()
+    }
 }
 
 #[derive(Default)]
@@ -135,7 +147,7 @@ impl Sessions {
             .as_raw_fd()
             .ok_or("Missing terminal descriptor")?;
         // The master owns fd and stays alive until after this duplicate is created.
-        let mut terminal = File::from(
+        let terminal = File::from(
             unsafe { BorrowedFd::borrow_raw(fd) }
                 .try_clone_to_owned()
                 .map_err(message)?,
@@ -152,10 +164,13 @@ impl Sessions {
         let events = EventQueue::new().map_err(message)?;
         let child = pair.slave.spawn_command(cmd).map_err(message)?;
         drop(pair.slave);
+        let master = Arc::new(Mutex::new(pair.master));
+        let resize_handle = Arc::downgrade(&master);
         let mut shell = Shell {
             pid: child.process_id().expect("Unix shell PID") as i32,
             child,
             device,
+            pty: Some((terminal, master)),
             reaped: false,
         };
         let pid = shell.pid;
@@ -165,7 +180,8 @@ impl Sessions {
         let worker = thread::Builder::new()
             .name(format!("minterm-pty-{id}"))
             .spawn(move || {
-                let result = run_io(&events, &mut terminal, &mut signal, pid, &state, |data| {
+                let terminal = &mut shell.pty.as_mut().unwrap().0;
+                let result = run_io(&events, terminal, &mut signal, pid, &state, |data| {
                     notify(SessionEvent::Output {
                         id,
                         data: STANDARD.encode(data),
@@ -206,7 +222,7 @@ impl Sessions {
         self.tabs.insert(
             id,
             Session {
-                master: pair.master,
+                master: resize_handle,
                 shell: pid,
                 start: cwd.into(),
                 queue,
@@ -248,10 +264,14 @@ impl Sessions {
     }
 
     pub fn resize(&self, id: u32, cols: u16, rows: u16) -> Result<(), String> {
-        self.tabs
+        let master = self
+            .tabs
             .get(&id)
-            .ok_or("Session closed")?
-            .master
+            .and_then(|session| session.master.upgrade())
+            .ok_or("Session closed")?;
+        master
+            .lock()
+            .unwrap()
             .resize(size(cols, rows))
             .map_err(message)
     }
@@ -268,8 +288,7 @@ impl Sessions {
         self.tabs.get(&id).is_some_and(|session| {
             !session.queue.lock().unwrap().closed
                 && (session
-                    .master
-                    .process_group_leader()
+                    .foreground_group()
                     .is_some_and(|pid| pid != session.shell)
                     || crate::agents::has_jobs(session.shell))
         })
@@ -290,8 +309,7 @@ impl Sessions {
             return None;
         }
         session
-            .master
-            .process_group_leader()
+            .foreground_group()
             .and_then(process_cwd)
             .or_else(|| process_cwd(session.shell))
             .or_else(|| allow_initial.then(|| session.start.clone()))
@@ -606,6 +624,9 @@ struct Shell {
     pid: i32,
     child: Box<dyn Child + Send + Sync>,
     device: Option<u32>,
+    // The worker owns both descriptors. UI calls borrow the master briefly for
+    // ioctl operations and cannot hold the terminal open throughout shutdown.
+    pty: Option<(File, Arc<Master>)>,
     reaped: bool,
 }
 
@@ -623,11 +644,13 @@ impl Shell {
         // Keep the session leader unreaped until our last signal. Its PID cannot
         // be reused as another session ID while we inspect the attached jobs.
         let mut pids = self.attached_jobs();
-        pids.push(self.pid);
         self.signal(&pids, libc::SIGHUP);
         thread::sleep(Duration::from_millis(150));
         pids.extend(self.attached_jobs());
         self.signal(&pids, libc::SIGKILL);
+        // Darwin may keep an exiting TUI in ttywait while the slave drains.
+        // Closing both master descriptors lets it complete exit before wait4.
+        drop(self.pty.take());
         let _ = self.wait();
     }
 
@@ -637,12 +660,15 @@ impl Shell {
 
     fn signal(&self, pids: &[i32], signal: i32) {
         for &pid in pids {
-            if pid > 0 && unsafe { libc::getsid(pid) } == self.pid {
+            if pid > 0 && pid != self.pid && unsafe { libc::getsid(pid) } == self.pid {
                 unsafe {
                     libc::kill(pid, signal);
                 }
             }
         }
+        // This is our direct, unreaped child. The kernel reserves its PID even
+        // when its session is gone and getsid(pid) already returns ESRCH.
+        unsafe { libc::kill(self.pid, signal) };
     }
 }
 
@@ -975,7 +1001,7 @@ mod tests {
         sessions.write(ID, b"start\r").unwrap();
         read_until(&sessions, &events, "started");
         assert_eq!(
-            sessions.tabs[&ID].master.process_group_leader(),
+            sessions.tabs[&ID].foreground_group(),
             Some(sessions.tabs[&ID].shell)
         );
         assert!(sessions.is_busy(ID));
@@ -998,10 +1024,59 @@ mod tests {
             thread::sleep(Duration::from_millis(10));
         }
         assert_eq!(
-            sessions.tabs[&ID].master.process_group_leader(),
+            sessions.tabs[&ID].foreground_group(),
             Some(sessions.tabs[&ID].shell)
         );
         assert!(sessions.is_busy(ID), "Exec agent went undetected");
+    }
+
+    #[test]
+    fn closing_a_flooded_raw_terminal_reaps_without_more_renderer_credit() {
+        let (mut sessions, output) = command(
+            "stty raw -echo; trap '' HUP; exec /usr/bin/yes pending",
+            false,
+        );
+        for _ in 0..OUTPUT_WINDOW {
+            assert!(matches!(next(&output), SessionEvent::Output { .. }));
+        }
+        // The UI is closing and will never acknowledge those blocks. The slave
+        // may still be waiting for the master to consume its queued output.
+        let pid = sessions.tabs[&ID].shell;
+        sessions.close(ID);
+        let worker = sessions.retiring.pop().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while !worker.is_finished() {
+            assert!(
+                Instant::now() < deadline,
+                "Worker stuck waiting for raw PTY exit"
+            );
+            thread::sleep(Duration::from_millis(10));
+        }
+        worker.join().unwrap();
+        assert_eq!(unsafe { libc::kill(pid, 0) }, -1);
+        assert_eq!(io::Error::last_os_error().raw_os_error(), Some(libc::ESRCH));
+    }
+
+    #[test]
+    fn direct_child_signal_does_not_require_a_session_match_or_hit_foreign_pids() {
+        use std::process::Command;
+        let child = Command::new("/bin/sleep").arg("2").spawn().unwrap();
+        let mut unrelated = Command::new("/bin/sleep").arg("10").spawn().unwrap();
+        let mut shell = Shell {
+            pid: child.id() as i32,
+            child: Box::new(child),
+            device: None,
+            pty: None,
+            reaped: false,
+        };
+        assert_ne!(unsafe { libc::getsid(shell.pid) }, shell.pid);
+        shell.signal(&[unrelated.id() as i32], libc::SIGHUP);
+        shell.terminate();
+        let owned_was_signalled = !shell.child.wait().unwrap().success();
+        let unrelated_survived = unrelated.try_wait().unwrap().is_none();
+        let _ = unrelated.kill();
+        unrelated.wait().unwrap();
+        assert!(owned_was_signalled && unrelated_survived);
     }
 
     #[test]
@@ -1019,14 +1094,13 @@ mod tests {
             .unwrap();
         let deadline = Instant::now() + Duration::from_secs(2);
         while sessions.tabs[&ID]
-            .master
-            .process_group_leader()
+            .foreground_group()
             .is_none_or(|pid| pid == sessions.tabs[&ID].shell)
         {
             assert!(Instant::now() < deadline, "No foreground job");
             thread::sleep(Duration::from_millis(5));
         }
-        let foreground = sessions.tabs[&ID].master.process_group_leader().unwrap();
+        let foreground = sessions.tabs[&ID].foreground_group().unwrap();
         assert_ne!(background, foreground);
         sessions.close(ID);
         drop(sessions);
