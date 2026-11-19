@@ -503,6 +503,14 @@ impl Lines {
     }
 }
 
+fn buffered(fd: RawFd) -> io::Result<usize> {
+    let mut bytes: libc::c_int = 0;
+    if unsafe { libc::ioctl(fd, libc::FIONREAD, &mut bytes) } == -1 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(bytes.max(0) as usize)
+}
+
 fn pump(
     process: &mut Process,
     signal: &UnixStream,
@@ -527,6 +535,7 @@ fn pump(
     let mut eof = [false; 2];
     let mut buf = [0u8; BLOCK];
     let mut oversized = false;
+    let mut tail = None;
     loop {
         if report.control.stopped.load(Ordering::Acquire) {
             return Ok(());
@@ -534,7 +543,12 @@ fn pump(
         if let Some(step) = report.pending {
             report.status(step, false);
         }
-        let exited = process.exited()?;
+        let exited = tail.is_some() || process.exited()?;
+        // Descendants can outlive a successful CLI (for example a dev server)
+        // and keep its pipes open. Drain exactly what was buffered at CLI exit.
+        if exited && tail.is_none() {
+            tail = Some([buffered(out.as_raw_fd())?, buffered(err.as_raw_fd())?]);
+        }
         let mut polls = [
             (signal.as_raw_fd(), libc::POLLIN),
             (input.as_ref().map_or(-1, AsRawFd::as_raw_fd), libc::POLLOUT),
@@ -590,10 +604,13 @@ fn pump(
             if eof[i] || (polls[i + 2].revents == 0 && !exited) {
                 continue;
             }
-            let n = match if i == 0 {
-                out.read(&mut buf)
+            let limit = tail.map_or(BLOCK, |sizes| sizes[i].min(BLOCK));
+            let n = match if limit == 0 {
+                Ok(0)
+            } else if i == 0 {
+                out.read(&mut buf[..limit])
             } else {
-                err.read(&mut buf)
+                err.read(&mut buf[..limit])
             } {
                 Ok(n) => n,
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock && exited => 0,
@@ -607,6 +624,9 @@ fn pump(
                 }
                 Err(e) => return Err(e),
             };
+            if let Some(sizes) = &mut tail {
+                sizes[i] -= n;
+            }
             if n == 0 {
                 eof[i] = true;
             } else {
