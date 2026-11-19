@@ -25,7 +25,7 @@ The fonts ship locally. Wait for the terminal font before measuring the first gr
 - Switching modes keeps the shell and its agent inside the selected tab. At the shell prompt, a robot replaces the chevron while the user enters an agent task. Keep the directory, branch and terminal grid aligned when switching modes.
 - Agent rows use the task as the primary label and the current action as supporting text. Reserve attention colors and text for confirmed process limits or a visible request for input.
 - Use the spacing scale for ordinary control groups. Use alignment and surface changes to group information. Keep the native traffic-light clearance and the measured terminal cell dimensions explicit.
-- In native Settings, use one command list and editor for the included agents and saved profiles. Mark the default in its row. Give the shell command field enough width to read a model name and its options together. Return chords belong to the robot prompt. Once a CLI has started, it owns its keyboard input.
+- In native Settings, use one command list and editor for the included agents and saved profiles. Mark the default in its row. Give the shell command field enough width to read a model name and its options together. Profile shortcuts belong to the robot prompt. Once a CLI has started, it owns its keyboard input.
 
 ## Checking a change
 

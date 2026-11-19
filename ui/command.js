@@ -118,14 +118,31 @@ export class CommandMode {
         toggle();
         return;
       }
-      if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) {
+      if (event.shiftKey || event.metaKey || event.altKey) {
         cancelChord();
+        return;
+      }
+      if (event.ctrlKey) {
+        cancelChord();
+        // Some keyboard layouts deliver the ASCII control character to WebKit.
+        let letter = event.key.toUpperCase();
+        if (/^Key[A-Z]$/.test(event.code) && /^[\x01-\x1a]$/.test(event.key)) {
+          letter = String.fromCharCode(64 + event.key.charCodeAt(0));
+        }
+        const shortcut = "Ctrl+" + letter;
+        if (this.bindings.has(shortcut)) {
+          event.preventDefault();
+          if (!event.repeat) {
+            held.add(physicalKey(event));
+            this.submit(shortcut);
+          }
+        }
         return;
       }
       if (event.key === "Enter") {
         event.preventDefault();
         if (event.repeat) return;
-        if (this.bindings.size || this.refreshing) {
+        if (this.hasReturnShortcuts || this.refreshing) {
           this.enterTab = currentTab();
           this.enterKey = physicalKey(event);
         } else {
@@ -133,14 +150,14 @@ export class CommandMode {
           this.submit();
         }
       } else if (this.enterTab) {
-        const key = event.key.toUpperCase();
+        const shortcut = "Enter+" + event.key.toUpperCase();
         const tab = this.enterTab;
         cancelChord();
-        if (tab === currentTab() && /^[A-Z]$/.test(key) && (this.bindings.has(key) || this.refreshing)) {
+        if (tab === currentTab() && /^[a-z]$/i.test(event.key) && (this.bindings.has(shortcut) || this.refreshing)) {
           event.preventDefault();
           held.add(this.enterKey);
           held.add(physicalKey(event));
-          this.submit(key);
+          this.submit(shortcut);
         }
       }
     };
@@ -164,7 +181,7 @@ export class CommandMode {
     return this.refreshing;
   }
 
-  async submit(boundKey) {
+  async submit(shortcut) {
     const tab = this.currentTab();
     if (tab?.mode !== "compose") return;
     const field = $("command-input");
@@ -177,10 +194,10 @@ export class CommandMode {
       this.queuedSubmit = null;
     }
     let agent = this.agent;
-    if (boundKey) {
-      agent = this.bindings.get(boundKey);
+    if (shortcut) {
+      agent = this.bindings.get(shortcut);
       if (!agent) {
-        this.notice(this.error || "No agent command uses Enter+" + boundKey + ".");
+        this.notice(this.error || "No agent command uses " + shortcut + ".");
         return;
       }
     } else {
@@ -197,10 +214,20 @@ export class CommandMode {
     if (!value) return;
     this.profiles.clear();
     this.bindings.clear();
+    this.hasReturnShortcuts = false;
+    const accessibleShortcuts = ["Enter", "Shift+Enter", "Escape"];
     for (const { name, shortcut } of value.agentCommands || []) {
       this.profiles.add(name);
-      if (shortcut) this.bindings.set(shortcut.slice(-1).toUpperCase(), name);
+      if (!shortcut) continue;
+      const letter = shortcut.slice(-1);
+      this.bindings.set("Ctrl+" + letter, name);
+      accessibleShortcuts.push("Control+" + letter);
+      if (shortcut.startsWith("Enter+")) {
+        this.hasReturnShortcuts = true;
+        this.bindings.set(shortcut, name);
+      }
     }
+    $("command-input").setAttribute("aria-keyshortcuts", accessibleShortcuts.join(" "));
     this.agent = value.agent || "codex";
     this.error = value.agentCommandsError;
     this.shortcut = value.shortcut || "";

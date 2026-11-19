@@ -1,6 +1,6 @@
 use crate::preferences::{self, AgentCommand, Preferences};
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     env, fs,
     io::{self, Write},
     path::{Path, PathBuf},
@@ -114,7 +114,7 @@ fn config(doc: &DocumentMut) -> Result<AgentConfig, String> {
     let mut commands = Vec::new();
     if let Some(rows) = doc.get("commands").and_then(Item::as_array_of_tables) {
         let mut names = HashSet::new();
-        let mut shortcuts = HashSet::new();
+        let mut shortcut_owners = HashMap::new();
         for (index, entry) in rows.iter().enumerate() {
             let field = |key| {
                 entry
@@ -137,12 +137,13 @@ fn config(doc: &DocumentMut) -> Result<AgentConfig, String> {
             if !names.insert(command.name.clone()) {
                 return Err(format!("The name {} is used more than once.", command.name));
             }
-            if !command.shortcut.is_empty()
-                && !shortcuts.insert(command.shortcut.to_ascii_uppercase())
+            // Legacy Enter shortcuts also accept Ctrl with the same letter.
+            if let Some((_, letter)) = command.shortcut.split_once('+')
+                && let Some(other) = shortcut_owners.insert(letter.to_owned(), command.name.clone())
             {
                 return Err(format!(
-                    "The shortcut {} is used more than once.",
-                    command.shortcut
+                    "Shortcut letter {letter} is assigned to both {other} and {}. Choose a different letter.",
+                    command.name
                 ));
             }
             commands.push(command);
@@ -207,16 +208,21 @@ fn canonical_shortcut(shortcut: &str) -> Result<String, String> {
     if shortcut.is_empty() {
         return Ok(String::new());
     }
-    if let Some((enter, key)) = shortcut.split_once('+') {
+    if let Some((modifier, key)) = shortcut.split_once('+') {
         let key = key.trim();
-        if enter.trim().eq_ignore_ascii_case("enter")
+        let modifier = match modifier.trim().to_ascii_lowercase().as_str() {
+            "ctrl" | "control" => Some("Ctrl"),
+            "enter" => Some("Enter"),
+            _ => None,
+        };
+        if let Some(modifier) = modifier
             && key.len() == 1
             && key.as_bytes()[0].is_ascii_alphabetic()
         {
-            return Ok(format!("Enter+{}", key.to_ascii_uppercase()));
+            return Ok(format!("{modifier}+{}", key.to_ascii_uppercase()));
         }
     }
-    Err("Use Enter and one letter, such as Enter+L.".into())
+    Err("Use Ctrl or Enter with one letter, such as Ctrl+L.".into())
 }
 
 pub fn read(legacy: &Preferences) -> Result<AgentConfig, String> {
@@ -405,11 +411,34 @@ mod tests {
                 ("claude", ""),
                 ("opencode", ""),
                 ("ocq", ""),
-                ("sol-light", "Enter+L"),
-                ("sol-ultra", "Enter+U")
+                ("sol-light", "Ctrl+L"),
+                ("sol-ultra", "Ctrl+U")
             ]
         );
         assert_eq!(config.commands[3].command, "ocq --");
+    }
+
+    #[test]
+    fn shortcut_letters_work_across_current_and_legacy_profiles() {
+        for (input, expected) in [
+            ("  control + l ", "Ctrl+L"),
+            ("CtRL+u", "Ctrl+U"),
+            (" enter + l", "Enter+L"),
+            (" ", ""),
+        ] {
+            assert_eq!(canonical_shortcut(input).unwrap(), expected);
+        }
+        for invalid in ["Ctrl+", "Ctrl+1", "Ctrl+é", "Ctrl+Shift+L", "Alt+L"] {
+            assert!(canonical_shortcut(invalid).is_err());
+        }
+
+        let collision = STARTER.replace("Ctrl+L", "Enter+U");
+        let error = config(&document(&collision).unwrap()).err().unwrap();
+        assert!(
+            error.contains("letter U")
+                && error.contains("sol-light")
+                && error.contains("sol-ultra")
+        );
     }
 
     #[test]
@@ -502,7 +531,11 @@ mod tests {
                 .commands
                 .contains(&tweaked)
         );
-        assert_eq!(edit(&tweaked, None).unwrap().default, "codex");
+        let mut unbound = tweaked.clone();
+        unbound.shortcut.clear();
+        let updated = edit(&tweaked, Some(&unbound)).unwrap();
+        assert!(updated.commands.contains(&unbound));
+        assert_eq!(edit(&unbound, None).unwrap().default, "codex");
         let reloaded = read_at(&link, &legacy).unwrap();
         assert!(!reloaded.commands.iter().any(|p| p.agent == "opencode"));
         let codex = reloaded
@@ -544,7 +577,7 @@ mod tests {
         let path = dir.path().join("agents.toml");
         let legacy = Preferences::default();
         for bad in [
-            STARTER.replace("Enter+U", "enter + l"),
+            STARTER.replace("Ctrl+U", "enter + l"),
             STARTER.replace("sol-ultra", "sol-light"),
             "default='missing'".into(),
             "commands = [".into(),

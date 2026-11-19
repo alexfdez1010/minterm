@@ -159,6 +159,12 @@ static void addBaseAgents(NSPopUpButton *popup) {
 
 - (NSString *)tableView:(NSTableView *)table toolTipForCell:(NSCell *)cell rect:(NSRectPointer)rect
             tableColumn:(NSTableColumn *)column row:(NSInteger)row mouseLocation:(NSPoint)mouse {
+    if ([column.identifier isEqual:@"shortcut"]) {
+        NSString *shortcut = _commands[row][@"shortcut"];
+        if ([shortcut hasPrefix:@"Enter+"]) {
+            return [NSString stringWithFormat:@"Also available as Ctrl+%@", [shortcut substringFromIndex:6]];
+        }
+    }
     return [column.identifier isEqual:@"command"] ? _commands[row][@"command"] : nil;
 }
 
@@ -211,7 +217,7 @@ static void addBaseAgents(NSPopUpButton *popup) {
     _command.placeholderString = @"Alias or executable with arguments";
     _shortcut = [NSTextField textFieldWithString:previous[@"shortcut"] ?: @""];
     _shortcut.accessibilityLabel = @"Command shortcut";
-    _shortcut.placeholderString = @"Optional, e.g. Enter+Q";
+    _shortcut.placeholderString = @"Optional, e.g. Ctrl+Q";
     for (NSTextField *field in @[_name, _command, _shortcut]) {
         field.delegate = self;
         field.font = [NSFont monospacedSystemFontOfSize:NSFont.systemFontSize weight:NSFontWeightRegular];

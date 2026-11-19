@@ -32,8 +32,8 @@ async function verifyPreferences() {
     {name: 'claude', title: 'Claude Code', agent: '', command: 'claude'},
     {name: 'opencode', title: 'OpenCode', agent: '', command: 'opencode'},
     {name: 'ocq', agent: 'opencode', command: 'ocq --', shortcut: ''},
-    {name: 'sol-light', agent: 'codex', shortcut: 'Enter+L'},
-    {name: 'sol-ultra', agent: 'codex', shortcut: 'Enter+U'},
+    {name: 'sol-light', agent: 'codex', shortcut: 'Ctrl+L'},
+    {name: 'sol-ultra', agent: 'codex', shortcut: 'Ctrl+U'},
   ];
   const pane = value => settings('pane', {value});
   const choose = name => settings('default', {name});
@@ -48,12 +48,12 @@ async function verifyPreferences() {
   await commandState(edited, 'codex');
   const reopened = await settings('readCommand', {name: editedStock.name});
   if (!matches(reopened, editedStock)) throw new Error('Reopened stock command: ' + JSON.stringify(reopened));
-  const profile = {name: 'localq', agent: 'opencode', command: 'ocq', shortcut: 'Enter+R'};
+  const profile = {name: 'localq', agent: 'opencode', command: 'ocq', shortcut: 'Ctrl+R'};
   await settings('addCommand', profile);
   await commandState([...edited, profile], 'codex');
   await choose(profile.name);
   await commandState([...edited, profile], profile.name);
-  const renamed = {...profile, name: 'qwenreview', shortcut: 'Enter+Y'};
+  const renamed = {...profile, name: 'qwenreview', shortcut: 'Ctrl+Y'};
   await settings('editCommand', {original: profile.name, ...renamed});
   await commandState([...edited, renamed], renamed.name);
   await pane('General');

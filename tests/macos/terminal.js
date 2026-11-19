@@ -26,11 +26,12 @@ async function expect(description, condition) {
     await pause(50);
   }
 }
-const command = 1 << 20, shift = 1 << 17;
-const key = (code, text, modifiers = 0, plain = text) =>
-  window.webkit.messageHandlers.testKey.postMessage({code, text, modifiers, plain});
-const keyPhase = (phase, code, text) =>
-  window.webkit.messageHandlers.testKey.postMessage({phase, code, text});
+const command = 1 << 20, control = 1 << 18, shift = 1 << 17;
+const key = (code, text, modifiers = 0, plain = text, phase = '') =>
+  window.webkit.messageHandlers.testKey.postMessage({code, text, modifiers, plain, phase});
+const controlLetter = (code, letter, phase) =>
+  key(code, String.fromCharCode(letter.toUpperCase().charCodeAt(0) & 31), control, letter, phase);
+const keyPhase = (phase, code, text) => key(code, text, 0, text, phase);
 async function type(text) {
   for (const letter of text) await key(0, letter);
 }
@@ -128,7 +129,7 @@ try {
   await key(18, '&', command); // The unshifted Digit1 symbol on a French keyboard.
   await expect('Command-Digit1 also works with a nonnumeric layout symbol', () =>
     selected() === first && document.activeElement === $('.terminal-page.selected textarea.xterm-helper-textarea'));
-  await key(48, '\t', 1 << 18);
+  await key(48, '\t', control);
   await expect('Control-Tab changes tabs', () => selected() === tabs()[1]);
   await key(30, '}', command | shift);
   await expect('Command-Shift-] selects the next tab', () => selected() === tabs()[2]);
@@ -353,17 +354,28 @@ try {
     await expect('Shell is ready after agent exit', () => surface()?.dataset.kind === 'shell');
     await key(40, 'k', command);
     await expect('Agent prompt is ready for a launch shortcut', () => document.activeElement === $('#command-input'));
-    await type('Test the change');
-    await key(36, '\r', shift);
-    await type('Review this diff.');
-    await keyPhase('down', 36, '\r');
-    await keyPhase('down', code, letter);
-    await keyPhase('up', code, letter);
-    await keyPhase('up', 36, '\r');
-    await expect('Enter+' + letter + ' launches a live terminal', () =>
+    if (letter === 'l') {
+      await type('Test the change');
+      await key(36, '\r', shift);
+      await type('Review this diff.');
+    }
+    await controlLetter(code, letter, letter === 'l' ? 'down' : '');
+    await expect('Ctrl+' + letter + ' launches a live terminal', () =>
       surface()?.dataset.kind === 'agent' && surface().dataset.state === 'live');
     const cli = activeTerminal();
     await expect('The shortcut chose the Sol model', () => rows(cli).includes('Model: gpt-6.2-sol'));
+    if (letter === 'l') {
+      // Release Control first and keep holding L as focus moves into the new PTY.
+      await keyPhase('repeat', code, letter);
+      await keyPhase('up', code, letter);
+    }
+    if (letter === 'u') {
+      // The PTY owns Ctrl+U after launch. Its line discipline erases this input.
+      await type('discard');
+      await controlLetter(32, 'u');
+    }
+    await enter('follow up');
+    await expect('Agent input is free of launch keys', () => rows(cli).includes('Fixture reply: follow up'));
     await enter('/exit');
     await expect('The shortcut session exits', () => surface().dataset.state === 'ended');
   }
@@ -409,13 +421,33 @@ try {
   await expect('Shell finished changing the TOML on disk', () => rows(external).includes('updated'));
   await key(40, 'k', command);
   await expect('Agent prompt opens after editing the configuration', () => document.activeElement === $('#command-input'));
-  await enter('freshq review external edit');
+  await type('review external edit');
+  await controlLetter(15, 'r');
   await expect('Newly written profile starts without reopening Settings or the window', () =>
     surface()?.dataset.kind === 'agent' && surface().dataset.state === 'live');
   const fresh = activeTerminal();
   await expect('New profile supplies its own model', () => rows(fresh).includes('Model: fixture/external'));
   await enter('/exit');
   await expect('External profile exits', () => surface().dataset.state === 'ended');
+  for (const heldReturn of [true, false]) {
+    await key(40, 'k', command);
+    await expect('Shell returns after external agent', () => surface()?.dataset.kind === 'shell');
+    await key(40, 'k', command);
+    await expect('Prompt is ready for a legacy shortcut', () => document.activeElement === $('#command-input'));
+    if (heldReturn) {
+      await keyPhase('down', 36, '\r');
+      await key(5, 'g');
+      await keyPhase('up', 36, '\r');
+    } else {
+      await controlLetter(5, 'g');
+    }
+    await expect('Legacy shortcut launches its agent', () =>
+      surface()?.dataset.kind === 'agent' && surface().dataset.state === 'live');
+    const cli = activeTerminal();
+    await expect('Legacy shortcut opens Claude with no prompt', () => rows(cli).includes('Started claude without a task'));
+    await enter('/exit');
+    await expect('Legacy shortcut agent exits', () => surface().dataset.state === 'ended');
+  }
   return 'passed';
 } catch (err) {
   return String(err) + '\n' + JSON.stringify({

@@ -26,10 +26,10 @@ command = "ocq --"
 name = "sol-light"
 agent = "codex"
 command = """codex -m gpt-6.2-sol -c 'model_reasoning_effort="low"'"""
-shortcut = "Enter+L"
+shortcut = "Ctrl+L"
 
 [[commands]]
 name = "sol-ultra"
 agent = "codex"
 command = """codex -m gpt-6.2-sol -c 'model_reasoning_effort="ultra"'"""
-shortcut = "Enter+U"
+shortcut = "Ctrl+U"

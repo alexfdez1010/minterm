@@ -142,6 +142,13 @@ fn main() {
 name = "freshq"
 agent = "opencode"
 command = "opencode --model fixture/external"
+shortcut = "Ctrl+R"
+
+[[commands]]
+name = "legacy"
+agent = "claude"
+command = "claude"
+shortcut = "Enter+G"
 "#,
     )
     .unwrap();
@@ -266,12 +273,14 @@ int main(void) {
         fs::read(home.join("external/custom-task-argv")).unwrap(),
         b"--model\0fixture/external\0--prompt=review external edit\0"
     );
-    for effort in ["low", "ultra"] {
-        assert_eq!(
-            fs::read(command_dir.join(format!("{effort}-argv"))).unwrap(),
-            format!("-m\0gpt-6.2-sol\0-c\0model_reasoning_effort=\"{effort}\"\0--\0Test the change\nReview this diff.\0").as_bytes()
-        );
-    }
+    assert_eq!(
+        fs::read(command_dir.join("low-argv")).unwrap(),
+        b"-m\0gpt-6.2-sol\0-c\0model_reasoning_effort=\"low\"\0--\0Test the change\nReview this diff.\0"
+    );
+    assert_eq!(
+        fs::read(command_dir.join("ultra-argv")).unwrap(),
+        b"-m\0gpt-6.2-sol\0-c\0model_reasoning_effort=\"ultra\"\0"
+    );
     assert!(fs::read(nested.join("blank-argv")).unwrap().is_empty());
     assert_eq!(
         fs::read_to_string(command_dir.join("blank-cwd"))

@@ -28,6 +28,7 @@ The Rust host uses macOS WebKit and a bundled copy of xterm.js. Building and run
 | --- | --- |
 | ⌘T | Open a tab in the active session’s directory |
 | ⌘K | Switch between the shell and its agent (configurable in Settings) |
+| ⌃L / ⌃U | Launch the light or ultra Codex profile from the robot prompt (configurable in Commands) |
 | ⌘W | Close the current tab or Settings window |
 | ⌘1 through ⌘9 | Select a tab by position |
 | ⌃Tab / ⌃⇧Tab | Select the next or previous tab |
@@ -64,16 +65,18 @@ At the robot prompt, type a saved name and press Return to start it. To pass an 
 | --- | --- | --- |
 | `codex`, `claude`, `opencode` | The corresponding interactive CLI | |
 | `ocq` | Your shell’s `ocq` alias for OpenCode with Qwen through Ollama | |
-| `sol-light` | Codex with `gpt-6.2-sol` and low reasoning effort | Hold Return and press L |
-| `sol-ultra` | Codex with `gpt-6.2-sol` and ultra reasoning effort | Hold Return and press U |
+| `sol-light` | Codex with `gpt-6.2-sol` and low reasoning effort | Control-L |
+| `sol-ultra` | Codex with `gpt-6.2-sol` and ultra reasoning effort | Control-U |
 
-Type a task before the chord to send it to that profile. Release Return on its own for the usual launch. The `ocq` preset calls `ocq --` so that `ollama launch` forwards the task to OpenCode. To change the Ollama model, edit your alias or set the profile’s shell command to `ollama launch opencode --model MODEL --`, replacing `MODEL` with its installed name. If your alias starts OpenCode directly, use `ocq` as the shell command.
+With the robot prompt focused, press a profile’s shortcut to launch it with your draft. Leave the prompt empty to start a session without a task. Existing bindings such as `Enter+L` also work with Control-L. You can still hold Return and press L for that binding.
+
+The `ocq` preset calls `ocq --` so that `ollama launch` forwards the task to OpenCode. To change the Ollama model, edit your alias or set the profile’s shell command to `ollama launch opencode --model MODEL --`, replacing `MODEL` with its installed name. If your alias starts OpenCode directly, use `ocq` as the shell command.
 
 Edit profiles in **Settings → Commands** or in `~/.config/minterm/agents.toml`. When `XDG_CONFIG_HOME` is set to an absolute directory, Minterm uses `$XDG_CONFIG_HOME/minterm/agents.toml`. **Show in Finder** opens the file’s location. The first launch copies the [starter TOML](config/agents.toml) there.
 
 In the current file format (`version = 2`), this list includes the three standard agents. Minterm upgrades earlier files on first use and keeps custom commands, executable paths and the selected default.
 
-Add a `[[commands]]` table per profile. Its `name` is what you type, `agent` selects the initial-task syntax (`codex`, `claude` or `opencode`), and `command` is the invocation in your interactive login shell. Put persistent aliases or functions in that shell’s startup files. The optional `shortcut` takes the form `"Enter+L"`. To set the default in the file, put `default = "sol-light"` above the first table. To use a changed profile, return to Minterm and start a new agent session.
+Add a `[[commands]]` table per profile. Its `name` is what you type, `agent` selects the initial-task syntax (`codex`, `claude` or `opencode`), and `command` is the invocation in your interactive login shell. Put persistent aliases or functions in that shell’s startup files. The optional `shortcut` takes the form `"Ctrl+L"`. Give each shortcut a different letter. To set the default in the file, put `default = "sol-light"` above the first table. To use a changed profile, return to Minterm and start a new agent session.
 
 ## Development
 
