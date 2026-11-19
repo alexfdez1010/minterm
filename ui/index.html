@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Minterm</title>
+    <link rel="stylesheet" href="/vendor/xterm.css" />
+    <link rel="stylesheet" href="/app.css" />
+    <script defer src="/vendor/xterm.js"></script>
+    <script defer src="/vendor/addon-fit.js"></script>
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <header id="titlebar">
+      <div id="tablist" role="tablist" aria-label="Terminal tabs"></div>
+      <button id="new-tab" class="icon" title="New tab (⌘T)" aria-label="New tab">
+        <i data-icon="plus"></i>
+      </button>
+      <div class="drag-space"></div>
+      <div class="tools">
+        <button
+          id="assist-toggle"
+          class="icon"
+          aria-label="Assistant"
+          title="Assistant (⌘J)"
+          aria-controls="assist-panel"
+          aria-pressed="false"
+        >
+          <i data-icon="spark"></i>
+        </button>
+        <button
+          id="inspector-toggle"
+          class="icon"
+          title="Local inspector (⌘I)"
+          aria-label="Local inspector"
+          aria-controls="inspect-panel"
+          aria-pressed="true"
+        >
+          <i data-icon="panel"></i>
+        </button>
+      </div>
+    </header>
+    <main>
+      <section class="workspace" aria-label="Terminal workspace">
+        <div class="context">
+          <span class="path"><i data-icon="folder"></i><bdi id="cwd"></bdi></span>
+          <span id="branch" hidden
+            ><i data-icon="branch"></i><bdi></bdi
+            ><span class="dirty" hidden aria-label="Tracked changes"></span
+          ></span>
+        </div>
+        <div id="terminals"></div>
+        <div id="exit-note" hidden><span></span><button id="restart">Open new shell</button></div>
+        <footer>
+          <span id="connection"
+            ><span class="status-dot"></span><span id="status">Opening shell</span></span
+          >
+          <span id="shell-name"></span>
+          <span class="grow"></span>
+          <span id="grid" title="Terminal columns × rows"></span>
+        </footer>
+      </section>
+      <aside id="sidebar" aria-label="Tools">
+        <section id="inspect-panel" class="panel">
+          <div class="panel-header">
+            <h1>Local inspector</h1>
+            <button
+              id="refresh"
+              class="icon"
+              title="Refresh inspector"
+              aria-label="Refresh inspector"
+            >
+              <i data-icon="refresh"></i>
+            </button>
+          </div>
+          <div class="panel-scroll">
+            <details id="agent-section" open>
+              <summary>
+                <i data-icon="agents"></i><span>Agents</span
+                ><span class="count" id="agent-count"></span><i data-icon="chevron"></i>
+              </summary>
+              <ul class="rows" id="agents" aria-label="Running agents"></ul>
+              <p class="empty" id="agent-empty">Checking sessions…</p>
+            </details>
+            <details id="port-section">
+              <summary>
+                <i data-icon="ports"></i><span>Listening ports</span
+                ><span class="count" id="port-count"></span><i data-icon="chevron"></i>
+              </summary>
+              <div class="filters" role="group" aria-label="Port filter">
+                <button id="dev-filter" aria-pressed="true">Development</button
+                ><button id="all-filter" aria-pressed="false">All ports</button>
+              </div>
+              <ul class="rows" id="ports" aria-label="Listening ports"></ul>
+              <p class="empty" id="port-empty">Checking listeners…</p>
+            </details>
+            <details id="db-section">
+              <summary>
+                <i data-icon="database"></i><span>Docker databases</span
+                ><span class="count" id="db-count"></span><i data-icon="chevron"></i>
+              </summary>
+              <ul class="rows" id="databases" aria-label="Docker databases"></ul>
+              <p class="empty" id="db-empty">Checking Docker…</p>
+            </details>
+          </div>
+        </section>
+        <section id="assist-panel" class="panel" hidden>
+          <div class="panel-scroll assistant-content">
+            <div class="provider-label">
+              <label for="provider">Provider</label
+              ><button id="settings" class="icon" title="Settings (⌘,)" aria-label="Settings">
+                <i data-icon="settings"></i>
+              </button>
+            </div>
+            <select id="provider">
+              <option value="openai">OpenAI</option>
+              <option value="anthropic">Anthropic</option>
+            </select>
+            <form id="question-form">
+              <label for="question">Ask a question</label>
+              <textarea
+                id="question"
+                rows="4"
+                maxlength="4000"
+                placeholder="Explain a command or paste an error…"
+                spellcheck="false"
+              ></textarea>
+              <p class="hint">Only the text you enter is sent.</p>
+              <button class="primary ask" id="ask" type="submit" disabled>
+                Ask OpenAI<i data-icon="arrow"></i>
+              </button>
+            </form>
+            <div class="reply" id="reply" hidden>
+              <h2 id="reply-title"></h2>
+              <div id="answer" role="status"></div>
+            </div>
+          </div>
+        </section>
+      </aside>
+    </main>
+    <div id="notice" role="status" hidden></div>
+    <dialog id="confirm">
+      <h2 id="confirm-title"></h2>
+      <p id="confirm-body"></p>
+      <div class="dialog-buttons">
+        <button id="cancel" class="secondary" autofocus>Cancel</button
+        ><button id="confirm-close" class="danger">Close</button>
+      </div>
+    </dialog>
+  </body>
+</html>

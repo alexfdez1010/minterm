@@ -1,0 +1,18 @@
+fn main() {
+    println!("cargo:rerun-if-changed=macos/settings.m");
+    cc::Build::new()
+        .file("macos/settings.m")
+        .flag("-fobjc-arc")
+        .flag("-fblocks")
+        .compile("minterm_settings");
+    if std::env::var_os("CARGO_FEATURE_UI_TESTS").is_some() {
+        println!("cargo:rerun-if-changed=tests/macos/driver.m");
+        cc::Build::new()
+            .file("tests/macos/driver.m")
+            .flag("-fobjc-arc")
+            .flag("-fblocks")
+            .compile("minterm_ui_test");
+    }
+    println!("cargo:rustc-link-lib=framework=AppKit");
+    println!("cargo:rustc-link-lib=framework=Foundation");
+}

@@ -1,0 +1,38 @@
+[package]
+name = "minterm"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+description = "A compact macOS terminal for local development and CLI agents"
+repository = "https://github.com/alexfdez1010/minterm"
+
+[dependencies]
+base64 = "0.22"
+chacha20poly1305 = "0.10"
+curl = { version = "0.4", default-features = false, features = ["force-system-lib-on-osx"] }
+getrandom = "0.3"
+libc = "0.2"
+muda = { version = "0.20", default-features = false }
+portable-pty = "0.9"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tao = { version = "0.37", default-features = false, features = ["rwh_06"] }
+tempfile = "3"
+wry = { version = "0.57", default-features = false }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+
+[build-dependencies]
+cc = "1"
+
+[features]
+ui-tests = []
+
+[[test]]
+name = "macos-ui"
+path = "tests/macos/terminal.rs"
+harness = false
+required-features = ["ui-tests"]
