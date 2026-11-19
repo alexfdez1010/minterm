@@ -4,10 +4,24 @@ set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root"
 out="$root/dist"
+if [[ $# -eq 1 && ${1:-} == --install ]]; then
+  out="$HOME/Applications"
+elif [[ $# -ne 0 ]]; then
+  echo "Usage: $0 [--install]" >&2
+  exit 2
+fi
+destination="$out/Minterm.app"
+if [[ ${1:-} == --install && ( -e "$destination" || -L "$destination" ) ]]; then
+  existing_id=$(plutil -extract CFBundleIdentifier raw -o - "$destination/Contents/Info.plist" 2>/dev/null || true)
+  bundle_id=$(plutil -extract CFBundleIdentifier raw -o - macos/Info.plist)
+  if [[ "$existing_id" != "$bundle_id" ]]; then
+    echo "A different item already occupies $destination. Move it before installing Minterm." >&2
+    exit 1
+  fi
+fi
 mkdir -p "$out"
 stage=$(mktemp -d "$out/.minterm.XXXXXXXX")
 app="$stage/Minterm.app"
-destination="$out/Minterm.app"
 cleanup() {
   if [[ -e "$stage/previous.app" && ! -e "$destination" ]]; then
     mv "$stage/previous.app" "$destination"
@@ -45,5 +59,5 @@ codesign --verify --strict "$app"
 if [[ -e "$destination" ]]; then
   mv "$destination" "$stage/previous.app"
 fi
-mv "$app" "$destination"
+mv "$app" "$out/"
 printf '%s\n' "$destination"

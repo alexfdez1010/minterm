@@ -2,16 +2,23 @@
 
 Minterm is a small macOS terminal for working with command-line agents. Each tab runs a login shell on a real pseudo-terminal. The inspector shows agents across tabs, listening TCP ports and local Docker databases. Select an agent to focus its terminal.
 
-## Run on macOS
+## Install and open Minterm
 
-Use macOS 13 or later, Rust 1.90 or later and the Xcode Command Line Tools. From the checkout, build and open the application with the following commands.
+On macOS 13 or later, install Rust 1.90 or newer and the Xcode Command Line Tools. You can get the command line tools by running `xcode-select --install`. [Install Rust](https://rust-lang.org/tools/install/)
 
 ```sh
-./macos/bundle.sh
-open dist/Minterm.app
+git clone https://github.com/alexfdez1010/minterm.git
+cd minterm
+./macos/bundle.sh --install && open "$HOME/Applications/Minterm.app"
 ```
 
-You can move the resulting app to Applications. The script signs it locally for the Mac that built it. To start directly in a project from an existing shell, use `cargo run --release --locked -- /path/to/project` or run the built `target/release/minterm` executable there.
+The installer builds Minterm, signs it locally and installs it in your personal Applications folder. You can then open Minterm from Spotlight or Finder. To update, quit Minterm and run the last command again from an updated checkout.
+
+To start Minterm in a project, run this command from that project's directory.
+
+```sh
+"$HOME/Applications/Minterm.app/Contents/MacOS/minterm" "$PWD"
+```
 
 The Rust host uses macOS WebKit and a bundled copy of xterm.js. Building and running the terminal requires neither Node.js nor an online frontend. Docker is optional.
 
@@ -59,6 +66,8 @@ Open the assistant with ⌘J, choose a provider and type a question. Minterm sen
 Keys persist under `~/Library/Application Support/Minterm`. Minterm uses XChaCha20-Poly1305 and re-encrypts the store with a new random key each time the app launches. The store and master key have owner-only permissions. A process that can read both files can recover the API keys. To clear a stored key from the shell, use `minterm key remove openai` or `minterm key remove anthropic`.
 
 ## Development
+
+Run `cargo run --release --locked -- /path/to/project` to launch from source. To build and open a separate app in the checkout, run `./macos/bundle.sh && open dist/Minterm.app`.
 
 ```sh
 cargo fmt --check

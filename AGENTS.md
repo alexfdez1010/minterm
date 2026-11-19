@@ -2,6 +2,16 @@
 
 Minterm is a macOS terminal for CLI agents. Keep terminal input responsive during output bursts and service scans. Write UI copy in English. Use the global design-craft skill for visual and interaction changes when available. Keep window chrome compact and give each label an operational purpose.
 
+## Install and open
+
+Use macOS 13 or later with Rust 1.90 or newer and the Xcode Command Line Tools. From the repository root, install for the current user and launch the app with one command.
+
+```sh
+./macos/bundle.sh --install && open "$HOME/Applications/Minterm.app"
+```
+
+For local development, `./macos/bundle.sh` builds the signed app in `dist/Minterm.app`. Open that copy with `open dist/Minterm.app`. [First-time setup](README.md#install-and-open-minterm)
+
 ## Where changes belong
 
 | Area | Entry point |
