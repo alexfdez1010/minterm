@@ -3,6 +3,7 @@ use std::env;
 use std::fs;
 use std::io::{self, Read};
 use std::net::IpAddr;
+use std::ops::RangeInclusive;
 use std::os::fd::OwnedFd;
 use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
@@ -27,7 +28,8 @@ pub struct Port {
 }
 
 #[derive(Debug, Serialize)]
-pub struct Database {
+pub struct Container {
+    pub kind: Option<&'static str>,
     pub name: String,
     pub image: String,
     pub ports: String,
@@ -41,13 +43,15 @@ pub struct Binding {
     start: u16,
     end: u16,
     protocol: String,
+    #[serde(skip)]
+    kind: Option<&'static str>,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum Service {
     Listener(Port),
-    Database(Database),
+    Container(Container),
 }
 
 #[derive(Debug, Serialize)]
@@ -178,29 +182,41 @@ fn parse_git(output: &str) -> Option<GitInfo> {
 }
 
 // These names describe common port conventions. The process comes from lsof.
-fn common_use(port: u16) -> Option<&'static str> {
-    Some(match port {
-        3000..=3003 | 4000 | 5000..=5001 | 8000..=8001 | 8080..=8081 | 8888 => "Web dev",
-        4173..=4174 | 5173..=5174 => "Vite",
-        4200 => "Angular",
-        4321 => "Astro",
-        5555 => "Prisma Studio",
-        6006 => "Storybook",
-        9229 => "Node inspector",
-        11434 => "Ollama",
-        1433 => "SQL Server",
-        1521 => "Oracle",
-        3306 => "MySQL / MariaDB",
-        5432 | 54322 => "PostgreSQL",
-        6379 => "Redis / Valkey",
-        7474 | 7687 => "Neo4j",
-        8123 | 9000 => "ClickHouse",
-        9042 => "Cassandra",
-        9200 => "Elasticsearch",
-        11211 => "Memcached",
-        26257 => "CockroachDB",
-        27017..=27019 => "MongoDB",
-        _ => return None,
+const COMMON_PORTS: &[(RangeInclusive<u16>, &str)] = &[
+    (3000..=3003, "Web dev"),
+    (4000..=4000, "Web dev"),
+    (5000..=5001, "Web dev"),
+    (8000..=8001, "Web dev"),
+    (8080..=8081, "Web dev"),
+    (8888..=8888, "Web dev"),
+    (4173..=4174, "Vite"),
+    (5173..=5174, "Vite"),
+    (4200..=4200, "Angular"),
+    (4321..=4321, "Astro"),
+    (5555..=5555, "Prisma Studio"),
+    (6006..=6006, "Storybook"),
+    (9229..=9229, "Node inspector"),
+    (11434..=11434, "Ollama"),
+    (1433..=1433, "SQL Server"),
+    (1521..=1521, "Oracle"),
+    (3306..=3306, "MySQL / MariaDB"),
+    (5432..=5432, "PostgreSQL"),
+    (54322..=54322, "PostgreSQL"),
+    (6379..=6379, "Redis / Valkey"),
+    (7474..=7474, "Neo4j"),
+    (7687..=7687, "Neo4j"),
+    (8123..=8123, "ClickHouse"),
+    (9000..=9000, "ClickHouse"),
+    (9042..=9042, "Cassandra"),
+    (9200..=9200, "Elasticsearch"),
+    (11211..=11211, "Memcached"),
+    (26257..=26257, "CockroachDB"),
+    (27017..=27019, "MongoDB"),
+];
+
+fn common_use(range: &RangeInclusive<u16>) -> Option<&'static str> {
+    COMMON_PORTS.iter().find_map(|(known, name)| {
+        (known.start() <= range.end() && range.start() <= known.end()).then_some(*name)
     })
 }
 
@@ -226,7 +242,7 @@ fn parse_ports(output: &str) -> Vec<Port> {
                 address: address.to_owned(),
                 pid,
                 process: process.to_owned(),
-                kind: common_use(port).map(str::to_owned),
+                kind: common_use(&(port..=port)).map(str::to_owned),
             });
         }
     }
@@ -321,39 +337,62 @@ fn is_database_image(image: &str) -> bool {
     ) || (reference.rsplit('/').nth(1) == Some("mssql") && name == "server")
 }
 
-fn parse_databases(output: &str) -> Vec<Database> {
-    let mut databases = Vec::new();
+fn parse_containers(output: &str) -> Vec<Container> {
+    let mut containers = Vec::new();
     for row in output.lines() {
         let mut fields = row.splitn(4, '\t');
-        if let (Some(name), Some(image), Some(state), Some(ports)) =
+        let (Some(name), Some(image), Some(state), Some(ports)) =
             (fields.next(), fields.next(), fields.next(), fields.next())
-            && is_database_image(image)
-        {
-            databases.push(Database {
-                name: name.to_owned(),
-                image: image.to_owned(),
-                state: state.to_owned(),
-                ports: ports.to_owned(),
-                bindings: ports.split(',').filter_map(published_binding).collect(),
-            });
+        else {
+            continue;
+        };
+        let bindings: Vec<_> = ports.split(',').filter_map(published_binding).collect();
+        let database = is_database_image(image);
+        if !database && bindings.is_empty() {
+            continue;
         }
+        let kind = if database {
+            Some("Database")
+        } else {
+            bindings.iter().find_map(|b| b.kind)
+        };
+        containers.push(Container {
+            name: name.to_owned(),
+            image: image.to_owned(),
+            state: state.to_owned(),
+            ports: ports.to_owned(),
+            bindings,
+            kind,
+        });
     }
-    databases.sort_unstable_by(|a, b| a.name.cmp(&b.name));
-    databases
+    containers.sort_unstable_by(|a, b| a.name.cmp(&b.name));
+    containers
+}
+
+fn port_range(text: &str) -> Option<RangeInclusive<u16>> {
+    let (start, end) = text.split_once('-').unwrap_or((text, text));
+    let start = start.parse().ok()?;
+    let end = end.parse().ok()?;
+    (start <= end).then_some(start..=end)
 }
 
 fn published_binding(mapping: &str) -> Option<Binding> {
     let (host, target) = mapping.trim().split_once("->")?;
-    let (_, protocol) = target.rsplit_once('/')?;
+    let (port, protocol) = target.rsplit_once('/')?;
     let (address, range) = host.rsplit_once(':')?;
-    let (start, end) = range.split_once('-').unwrap_or((range, range));
-    let start = start.parse().ok()?;
-    let end = end.parse().ok()?;
-    (start <= end).then(|| Binding {
+    let host = port_range(range)?;
+    let target = port_range(port)?;
+    let kind = if protocol == "tcp" {
+        common_use(&target).or_else(|| common_use(&host))
+    } else {
+        None
+    };
+    Some(Binding {
         address: address.to_owned(),
-        start,
-        end,
+        start: *host.start(),
+        end: *host.end(),
         protocol: protocol.to_owned(),
+        kind,
     })
 }
 
@@ -367,11 +406,11 @@ fn same_bind_address(listener: &str, docker: &str) -> bool {
     }
 }
 
-fn merge_services(ports: Vec<Port>, databases: Vec<Database>) -> Vec<Service> {
+fn merge_services(ports: Vec<Port>, containers: Vec<Container>) -> Vec<Service> {
     let mut entries: Vec<_> = ports
         .into_iter()
         .filter(|port| {
-            !databases.iter().flat_map(|db| &db.bindings).any(|binding| {
+            !containers.iter().flat_map(|c| &c.bindings).any(|binding| {
                 binding.protocol == "tcp"
                     && (binding.start..=binding.end).contains(&port.port)
                     && same_bind_address(&port.address, &binding.address)
@@ -379,20 +418,22 @@ fn merge_services(ports: Vec<Port>, databases: Vec<Database>) -> Vec<Service> {
         })
         .map(Service::Listener)
         .collect();
-    entries.extend(databases.into_iter().map(Service::Database));
+    entries.extend(containers.into_iter().map(Service::Container));
     entries.sort_by_key(|entry| match entry {
         Service::Listener(port) => (if port.kind.is_some() { 0 } else { 2 }, port.port),
-        Service::Database(db) => db
+        Service::Container(container) => container
             .bindings
             .iter()
             .map(|b| b.start)
             .min()
-            .map_or((1, 0), |port| (0, port)),
+            .map_or((1, 0), |port| {
+                (if container.kind.is_some() { 0 } else { 2 }, port)
+            }),
     });
     entries
 }
 
-fn databases() -> Result<Vec<Database>, String> {
+fn docker_containers() -> Result<Vec<Container>, String> {
     let docker = docker_binary().ok_or("Docker CLI is unavailable.")?;
     let context_selected = env::var_os("DOCKER_CONTEXT").is_some_and(|v| !v.is_empty());
     let host = env::var("DOCKER_HOST").ok().filter(|s| !s.is_empty());
@@ -434,22 +475,22 @@ fn databases() -> Result<Vec<Database>, String> {
     if !status.success() {
         return Err("Could not reach the local Docker daemon.".to_owned());
     }
-    Ok(parse_databases(&output))
+    Ok(parse_containers(&output))
 }
 
 pub fn services() -> Services {
-    let (ports, databases) = std::thread::scope(|s| {
+    let (ports, containers) = std::thread::scope(|s| {
         let ports = s.spawn(listeners);
-        let databases = databases();
+        let containers = docker_containers();
         (
             ports.join().expect("listener inspector panicked"),
-            databases,
+            containers,
         )
     });
     let ports_error = ports.as_ref().err().cloned();
-    let docker_error = databases.as_ref().err().cloned();
+    let docker_error = containers.as_ref().err().cloned();
     Services {
-        entries: merge_services(ports.unwrap_or_default(), databases.unwrap_or_default()),
+        entries: merge_services(ports.unwrap_or_default(), containers.unwrap_or_default()),
         ports_error,
         docker_error,
     }
@@ -486,7 +527,7 @@ mod tests {
 
     #[test]
     fn docker_matches_database_images_and_keeps_actual_mappings() {
-        let dbs = parse_databases(
+        let dbs = parse_containers(
             "finance\tregistry:5000/team/pgvector:16\trunning\t0.0.0.0:5434->5432/tcp\ncache\tvalkey/valkey@sha256:aabbcc\trunning\t\nadmin\tdpage/pgadmin4\trunning\t80/tcp\n",
         );
         assert_eq!(dbs.len(), 2);
@@ -501,14 +542,43 @@ mod tests {
         let services = merge_services(ports, dbs);
         assert_eq!(services.len(), 3);
         assert!(
-            matches!(&services[0], Service::Database(db) if db.name == "finance" && db.bindings[0].start == 5434)
+            matches!(&services[0], Service::Container(db) if db.name == "finance" && db.bindings[0].start == 5434)
         );
         assert!(matches!(&services[2], Service::Listener(p) if p.process == "node"));
     }
 
     #[test]
+    fn published_apps_use_host_or_container_ports_for_development() {
+        let containers = parse_containers(concat!(
+            "api\tmy-org/api\trunning\t127.0.0.1:9091->8080/tcp\n",
+            "frontend\tmy-org/ui\trunning\t0.0.0.0:5173->80/tcp\n",
+            "other\tmy-org/service\trunning\t127.0.0.1:19991->20001/tcp\n",
+            "private\tmy-org/worker\trunning\t8080/tcp\n",
+            "udp-only\tmy-org/service\trunning\t0.0.0.0:21000->5173/udp\n",
+        ));
+        let listeners = parse_ports("p42\0cproxy\0n127.0.0.1:9091\0n127.0.0.1:19991\0");
+        let entries = merge_services(listeners, containers);
+        let actual: Vec<_> = entries
+            .iter()
+            .map(|entry| match entry {
+                Service::Container(container) => (container.name.as_str(), container.kind),
+                Service::Listener(_) => panic!("Duplicate listener for a published socket"),
+            })
+            .collect();
+        assert_eq!(
+            actual,
+            [
+                ("frontend", Some("Vite")),
+                ("api", Some("Web dev")),
+                ("other", None),
+                ("udp-only", None),
+            ]
+        );
+    }
+
+    #[test]
     fn docker_merges_only_matching_tcp_addresses_including_ranges_and_ipv6() {
-        let dbs = parse_databases(
+        let dbs = parse_containers(
             "db\tpostgres\trunning\t127.0.0.1:5400-5402->5432-5434/tcp, [::]:6380->6379/tcp, 127.0.0.1:5500->5500/udp\ninternal\tredis\trunning\t6379/tcp",
         );
         let listeners = parse_ports(
@@ -517,7 +587,7 @@ mod tests {
         let entries = merge_services(listeners, dbs);
         assert_eq!(entries.len(), 6);
         assert!(
-            entries.iter().any(|entry| matches!(entry, Service::Database(db) if db.name == "internal" && db.bindings.is_empty()))
+            entries.iter().any(|entry| matches!(entry, Service::Container(db) if db.name == "internal" && db.bindings.is_empty()))
         );
         let remaining: Vec<_> = entries
             .iter()

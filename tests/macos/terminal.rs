@@ -74,6 +74,9 @@ set -eu
 [ "$1" = --host ] && [ "$3" = ps ] || exit 64
 printf 'fixture-postgres\tpostgres:16\trunning\t127.0.0.1:%s->5432/tcp\n' "$FIXTURE_PORT"
 printf 'fixture-cache\tredis:7\trunning\t6379/tcp\n'
+printf 'fixture-web\tlocal/web:1\trunning\t127.0.0.1:9091->8080/tcp\n'
+printf 'fixture-other\tlocal/other:1\trunning\t127.0.0.1:19991->20001/tcp\n'
+printf 'fixture-private\tlocal/worker:1\trunning\t8080/tcp\n'
 "#,
     )
     .unwrap();

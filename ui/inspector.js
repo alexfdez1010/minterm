@@ -50,7 +50,7 @@ function scan() {
 }
 function renderServices() {
   if (!services) return;
-  const entries = services.entries.filter((entry) => showAll || entry.type === "database" || entry.kind);
+  const entries = services.entries.filter((entry) => showAll || entry.kind);
   $("dev-filter").setAttribute("aria-pressed", String(!showAll));
   $("all-filter").setAttribute("aria-pressed", String(showAll));
   $("port-count").textContent = String(entries.length);
@@ -64,7 +64,7 @@ function renderServices() {
 
 function serviceRow(entry) {
   const row = element("li");
-  if (entry.type === "database") {
+  if (entry.type === "container") {
     const binding = entry.bindings[0];
     const metadata = ["Docker", entry.state, entry.image].filter(Boolean).join(" · ");
     const mapping = binding ? entry.ports : ["No host port", entry.ports].filter(Boolean).join(" · ");

@@ -118,15 +118,16 @@ try {
   ports.querySelector('summary').click();
   await expect('Port section toggles', () => ports.open !== initial);
   const serviceRows = () => [...ports.querySelectorAll('#ports li')];
-  const postgres = () => serviceRows().find(row => row.querySelector('.service-name').textContent === 'fixture-postgres');
-  const cache = () => serviceRows().find(row => row.querySelector('.service-name').textContent === 'fixture-cache');
-  await expect('Docker databases are shown in Development', () =>
-    postgres()?.textContent.includes('127.0.0.1:') && postgres().textContent.includes('5432/tcp') &&
-    postgres().textContent.includes('running') && cache()?.textContent.includes('No host port'));
+  const service = name => serviceRows().find(row => row.querySelector('.service-name').textContent === 'fixture-' + name);
+  await expect('Development includes databases and mapped app ports', () =>
+    service('postgres')?.textContent.includes('127.0.0.1:') && service('postgres').textContent.includes('5432/tcp') &&
+    service('postgres').textContent.includes('running') && service('cache')?.textContent.includes('No host port') &&
+    service('web')?.textContent.includes('127.0.0.1:9091 → 8080/tcp') && !service('other') && !service('private'));
   $('#all-filter').click();
-  const boundEndpoint = '127.0.0.1' + postgres().querySelector('.port-number').textContent;
-  await expect('All ports combines the listener and its container', () =>
-    $('#all-filter').getAttribute('aria-pressed') === 'true' && postgres() && cache() &&
+  const boundEndpoint = '127.0.0.1' + service('postgres').querySelector('.port-number').textContent;
+  await expect('All ports includes other published apps and combines overlapping listeners', () =>
+    $('#all-filter').getAttribute('aria-pressed') === 'true' && service('postgres') && service('cache') &&
+    service('other')?.textContent.includes('local/other:1') && !service('private') &&
     !serviceRows().some(row => row.title.startsWith(boundEndpoint + ' ')));
   $('#dev-filter').click();
   ports.querySelector('summary').click();
