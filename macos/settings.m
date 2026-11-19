@@ -1,11 +1,12 @@
 #import <AppKit/AppKit.h>
+#import "preferences.h"
 
 typedef int (*MTUpdate)(int action, int provider, const unsigned char *key,
                         size_t length, char *message, size_t capacity);
 
 typedef NS_ENUM(int, MTKeyAction) { MTReadStatus, MTSaveKey, MTRemoveKey };
 
-@interface MTSettingsController : NSObject <NSWindowDelegate, NSTextFieldDelegate>
+@interface MTSettingsController : NSObject <NSWindowDelegate, NSTextFieldDelegate, NSTabViewDelegate>
 @property (nonatomic, strong) NSWindow *window;
 @property (nonatomic, strong) NSPopUpButton *providers;
 @property (nonatomic, strong) NSSecureTextField *field;
@@ -17,15 +18,17 @@ typedef NS_ENUM(int, MTKeyAction) { MTReadStatus, MTSaveKey, MTRemoveKey };
 @property (nonatomic) NSUInteger generation;
 @property (nonatomic) BOOL busy;
 @property (nonatomic) BOOL saved;
+@property (nonatomic, strong) MTPreferencesPane *preferences;
+@property (nonatomic, strong) NSTabView *tabs;
 @end
 
 @implementation MTSettingsController
-- (instancetype)initWithUpdate:(MTUpdate)update {
+- (instancetype)initWithUpdate:(MTUpdate)update change:(MTChangePreference)change {
     self = [super init];
     if (!self) return nil;
     _queue = dispatch_queue_create("com.minterm.settings", DISPATCH_QUEUE_SERIAL);
     _update = update;
-    _window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 464, 184)
+    _window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 490, 276)
                                          styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
                                            backing:NSBackingStoreBuffered defer:NO];
     _window.title = @"Minterm Settings";
@@ -55,7 +58,18 @@ typedef NS_ENUM(int, MTKeyAction) { MTReadStatus, MTSaveKey, MTRemoveKey };
     _removeButton = [NSButton buttonWithTitle:@"Remove Key" target:self action:@selector(removeKey:)];
     _removeButton.toolTip = @"Remove this provider’s key from Minterm";
     _window.initialFirstResponder = _field;
-    NSView *content = _window.contentView;
+    NSView *content = [NSView new];
+    _preferences = [[MTPreferencesPane alloc] initWithChange:change];
+    _tabs = [[NSTabView alloc] initWithFrame:NSInsetRect(_window.contentView.bounds, 12, 12)];
+    _tabs.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    for (NSArray *entry in @[@[@"General", _preferences.generalView], @[@"API Keys", content], @[@"Ollama", _preferences.ollamaView]]) {
+        NSTabViewItem *item = [[NSTabViewItem alloc] initWithIdentifier:entry[0]];
+        item.label = entry[0];
+        item.view = entry[1];
+        [_tabs addTabViewItem:item];
+    }
+    _tabs.delegate = self;
+    [_window.contentView addSubview:_tabs];
     for (NSView *view in @[providerLabel, keyLabel, _providers, _field, _status, _removeButton, _saveButton]) {
         view.translatesAutoresizingMaskIntoConstraints = NO;
         [content addSubview:view];
@@ -148,23 +162,37 @@ typedef NS_ENUM(int, MTKeyAction) { MTReadStatus, MTSaveKey, MTRemoveKey };
 }
 
 - (void)windowWillClose:(NSNotification *)notification {
+    [self.window makeFirstResponder:nil];
+    [self.preferences stopRecording];
     ++self.generation;
     [self clearField];
     self.status.stringValue = @"";
 }
 
-- (void)show {
+- (void)windowDidResignKey:(NSNotification *)notification {
+    [self.preferences stopRecording];
+}
+
+- (void)tabView:(NSTabView *)tabView didSelectTabViewItem:(NSTabViewItem *)item {
+    [self.preferences stopRecording];
+    if ([item.identifier isEqual:@"Ollama"]) [self.preferences refreshModels];
+    if ([item.identifier isEqual:@"API Keys"]) [self providerChanged:nil];
+}
+
+- (void)show:(NSDictionary *)prefs {
+    [self.preferences reload:prefs];
     [self providerChanged:nil];
     [self.window makeKeyAndOrderFront:nil];
-    [self.window makeFirstResponder:self.field];
+    if ([self.tabs.selectedTabViewItem.identifier isEqual:@"API Keys"]) [self.window makeFirstResponder:self.field];
 }
 @end
 
 static MTSettingsController *controller;
 
-void minterm_settings_show(MTUpdate update) {
-    if (!controller) controller = [[MTSettingsController alloc] initWithUpdate:update];
-    [controller show];
+void minterm_settings_show(MTUpdate update, const char *prefs, MTChangePreference change) {
+    if (!controller) controller = [[MTSettingsController alloc] initWithUpdate:update change:change];
+    NSDictionary *values = [NSJSONSerialization JSONObjectWithData:[@(prefs) dataUsingEncoding:NSUTF8StringEncoding] options:0 error:NULL];
+    [controller show:values];
 }
 
 bool minterm_settings_close_if_key(void) {

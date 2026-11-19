@@ -1,7 +1,28 @@
-import { send } from "./shared.js";
+import { agentNames, send } from "./shared.js";
 
 const SUMMARY_INTERVAL = 30000;
 const MAX_SUMMARIES = 4;
+const ACTIVITY_SAMPLE_MS = 350;
+
+// Only these fixed labels may describe observed PTY output to a provider.
+// Command arguments, file names and terminal text stay in the local renderer.
+const activityLabels = [
+  [/^(?:running (?:a command|tests)|bash\()/i, "Running a command"],
+  [/^(?:reading files?|read\()/i, "Reading files"],
+  [/^(?:editing files?|edit\(|write\()/i, "Editing files"],
+  [/^(?:searching|grep\(|glob\()/i, "Searching"],
+  [/^(?:thinking|reasoning|working)(?:\b|…)/i, "Working"],
+];
+
+function activityLabel(excerpt) {
+  for (const line of excerpt.split("\n").reverse()) {
+    const text = line.trim().replace(/^[•●⏺✦\s]+/u, "");
+    for (const [pattern, label] of activityLabels) {
+      if (pattern.test(text)) return label;
+    }
+  }
+  return "";
+}
 
 // Read the live cursor area even when someone has scrolled up through history.
 export function terminalExcerpt(term, count = 14) {
@@ -53,6 +74,7 @@ export class Activity {
   }
 
   scan(agents) {
+    agents = agents.filter((agent) => !this.jobs.has(agent.id));
     for (const old of this.manual) {
       if (
         old.foreground &&
@@ -76,13 +98,14 @@ export class Activity {
     if (this.waiting.has(id)) {
       this.answered.set(id, this.waiting.get(id));
       this.waiting.delete(id);
+      if (this.jobs.has(id)) this.update({ id, state: "running", detail: "Input sent" });
     }
   }
 
   start(id, { agent, prompt }) {
     this.jobs.set(id, {
       id,
-      name: agent === "claude" ? "Claude Code" : "Codex",
+      name: agentNames[agent],
       prompt,
       title: prompt.trim().split(/\s+/).join(" ").slice(0, 80),
       managed: true,
@@ -96,12 +119,52 @@ export class Activity {
     this.publish();
   }
 
+  observe(id) {
+    const job = this.jobs.get(id);
+    if (!job || job.finished || job.sampleTimer) return;
+    job.sampleTimer = setTimeout(() => {
+      job.sampleTimer = undefined;
+      this.sample(job);
+    }, ACTIVITY_SAMPLE_MS);
+  }
+
+  sample(job) {
+    const excerpt = this.preview(job.id);
+    if (!excerpt) return;
+    const waiting = excerpt !== this.answered.get(job.id) && asksForInput(excerpt);
+    if (waiting) this.waiting.set(job.id, excerpt);
+    else this.waiting.delete(job.id);
+    const label = waiting ? "Waiting for input" : activityLabel(excerpt);
+    const state = waiting ? "inputRequested" : "running";
+    const detail = label || (job.prompt ? "Terminal output" : "Session open");
+    if (job.state !== state || job.detail !== detail) this.update({ id: job.id, state, detail });
+  }
+
+  finish(id, success, reason) {
+    const job = this.jobs.get(id);
+    if (!job || job.finished) return;
+    clearTimeout(job.sampleTimer);
+    this.sample(job);
+    this.waiting.delete(id);
+    job.finished = true;
+    this.update({
+      id,
+      state: success ? "completed" : "failed",
+      detail: success ? "Session ended" : reason || "Agent exited with an error",
+    });
+  }
+
   update({ id, state, detail }) {
     const job = this.jobs.get(id);
     if (!job || job.state === "stopped") return;
     job.state = state === "blocked" ? "needsAttention" : state;
     job.detail = detail;
-    if (state === "running" && detail && job.steps.at(-1) !== detail) {
+    if (
+      (state === "running" || state === "inputRequested") &&
+      detail &&
+      detail !== "Session open" &&
+      job.steps.at(-1) !== detail
+    ) {
       job.steps.push(detail);
       if (job.steps.length > 4) job.steps.shift();
     }
@@ -139,7 +202,7 @@ export class Activity {
     if (previous?.pending || !excerpt.trim()) return;
     const revision = ++this.revision;
     this.summaries.set(id, { revision, pending: true, text: previous?.text });
-    // Managed jobs omit provider. The native host resolves the CLI's matching
+    // App-launched TUIs omit provider. The native host resolves the CLI's matching
     // provider and checks its key before any network request.
     send("summarize", { id, provider, excerpt, revision });
     this.publish();
@@ -164,6 +227,7 @@ export class Activity {
 
   close(id) {
     clearTimeout(this.jobs.get(id)?.timer);
+    clearTimeout(this.jobs.get(id)?.sampleTimer);
     this.jobs.delete(id);
     this.summaries.delete(id);
     this.answered.delete(id);

@@ -1,3 +1,5 @@
+mod ollama;
+
 use crate::credentials::{self, Provider};
 use curl::easy::{Easy, List};
 use serde_json::{Value, json};
@@ -15,32 +17,64 @@ enum Purpose {
     Activity,
 }
 
-pub enum SummarySource {
-    Managed(Provider),
-    Reviewed(Provider),
+#[derive(Clone, Copy, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AssistantProvider {
+    OpenAi,
+    Anthropic,
+    Ollama,
 }
 
-pub fn ask(provider: Provider, question: &str) -> Result<String, String> {
+impl AssistantProvider {
+    fn cloud_key(self) -> Option<Provider> {
+        match self {
+            Self::OpenAi => Some(Provider::OpenAi),
+            Self::Anthropic => Some(Provider::Anthropic),
+            Self::Ollama => None,
+        }
+    }
+}
+
+pub enum SummarySource {
+    Managed(AssistantProvider),
+    Reviewed(AssistantProvider),
+}
+
+pub fn ask(provider: AssistantProvider, question: &str) -> Result<String, String> {
     let question = checked_input(question)?;
-    request(
-        provider,
-        question,
-        &credentials::lookup(provider)?,
-        Purpose::Question,
-    )
+    match provider.cloud_key() {
+        Some(cloud) => request(
+            cloud,
+            question,
+            &credentials::lookup(cloud)?,
+            Purpose::Question,
+        ),
+        None => ollama::chat(question, Purpose::Question, &crate::preferences::read()),
+    }
 }
 
 pub fn summarize(source: SummarySource, excerpt: &str) -> Result<Option<String>, String> {
-    let (provider, key) = match source {
-        SummarySource::Managed(provider) => {
-            let Some(key) = credentials::configured_key(provider)? else {
+    let (provider, automatic) = match source {
+        SummarySource::Managed(provider) => (provider, true),
+        SummarySource::Reviewed(provider) => (provider, false),
+    };
+    let answer = if let Some(cloud) = provider.cloud_key() {
+        let key = if automatic {
+            let Some(key) = credentials::configured_key(cloud)? else {
                 return Ok(None);
             };
-            (provider, key)
-        }
-        SummarySource::Reviewed(provider) => (provider, credentials::lookup(provider)?),
+            key
+        } else {
+            credentials::lookup(cloud)?
+        };
+        request(cloud, checked_input(excerpt)?, &key, Purpose::Activity)?
+    } else {
+        ollama::chat(
+            checked_input(excerpt)?,
+            Purpose::Activity,
+            &crate::preferences::read(),
+        )?
     };
-    let answer = request(provider, checked_input(excerpt)?, &key, Purpose::Activity)?;
     Ok(Some(
         answer
             .split_whitespace()
@@ -90,7 +124,6 @@ fn request(
     let model = model.as_deref().unwrap_or(default_model);
     let body = request_body(provider, question, model, purpose);
 
-    let mut request = Easy::new();
     let mut headers = List::new();
     headers
         .append("Content-Type: application/json")
@@ -103,6 +136,29 @@ fn request(
             .append("anthropic-version: 2026-10-21")
             .map_err(network_error)?;
     }
+    let (status, response) = exchange(url, headers, Some(&body))?;
+    if !(200..300).contains(&status) {
+        // API error bodies can echo credentials and submitted text.
+        return Err(match status {
+            400 | 404 | 422 => {
+                format!("The provider rejected the request for {model} (HTTP {status}).")
+            }
+            401 | 403 => {
+                "The provider rejected the API key. Check its permissions and billing.".into()
+            }
+            429 => {
+                "The provider reached a usage limit. Check your quota or try again later.".into()
+            }
+            _ => format!("The provider could not complete the request (HTTP {status})."),
+        });
+    }
+    let value = serde_json::from_slice(&response)
+        .map_err(|_| "The provider returned an invalid response.")?;
+    answer_text(provider, &value)
+}
+
+fn exchange(url: &str, headers: List, body: Option<&Value>) -> Result<(u32, Vec<u8>), String> {
+    let mut request = Easy::new();
     request.url(url).map_err(network_error)?;
     request.http_headers(headers).map_err(network_error)?;
     request
@@ -111,9 +167,11 @@ fn request(
     request
         .timeout(Duration::from_secs(60))
         .map_err(network_error)?;
-    request
-        .post_fields_copy(body.to_string().as_bytes())
-        .map_err(network_error)?;
+    if let Some(body) = body {
+        request
+            .post_fields_copy(body.to_string().as_bytes())
+            .map_err(network_error)?;
+    }
 
     let mut response = Vec::new();
     let mut exceeded_limit = false;
@@ -136,24 +194,7 @@ fn request(
     }
     result.map_err(network_error)?;
     let status = request.response_code().map_err(network_error)?;
-    if !(200..300).contains(&status) {
-        // API error bodies can echo credentials and submitted text.
-        return Err(match status {
-            400 | 404 | 422 => {
-                format!("The provider rejected the request for {model} (HTTP {status}).")
-            }
-            401 | 403 => {
-                "The provider rejected the API key. Check its permissions and billing.".into()
-            }
-            429 => {
-                "The provider reached a usage limit. Check your quota or try again later.".into()
-            }
-            _ => format!("The provider could not complete the request (HTTP {status})."),
-        });
-    }
-    let value = serde_json::from_slice(&response)
-        .map_err(|_| "The provider returned an invalid response.")?;
-    answer_text(provider, &value)
+    Ok((status, response))
 }
 
 fn network_error(error: curl::Error) -> String {
@@ -301,7 +342,13 @@ mod tests {
         ] {
             assert!(answer_text(provider, &response).is_err());
         }
-        assert!(ask(Provider::OpenAi, "  ").is_err());
-        assert!(ask(Provider::Anthropic, &"x".repeat(MAX_QUESTION_CHARS + 1)).is_err());
+        assert!(ask(AssistantProvider::OpenAi, "  ").is_err());
+        assert!(
+            ask(
+                AssistantProvider::Anthropic,
+                &"x".repeat(MAX_QUESTION_CHARS + 1)
+            )
+            .is_err()
+        );
     }
 }

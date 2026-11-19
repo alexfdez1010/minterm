@@ -34,50 +34,50 @@ fn init_repository(dir: &Path, branch: &str) {
     );
 }
 
-// Model the Codex CLI boundary. A tool result and the final reply come from
-// distinct JSONL records, just as they do in a non-interactive Codex session.
+// Both fixture CLIs require a controlling terminal and accept a single literal task.
 fn install_agent_fixtures(home: &Path) -> std::path::PathBuf {
     let bin = home.join(".local/bin");
     fs::create_dir_all(&bin).unwrap();
-    let executable = bin.join("codex");
-    fs::write(&executable, r#"#!/bin/sh
+    for name in ["codex", "claude"] {
+        let cli = bin.join(name);
+        fs::write(
+            &cli,
+            r#"#!/bin/sh
 set -eu
-if [ "$#" -ne 3 ] || [ "$1" != exec ] || [ "$2" != --json ] || [ "$3" != - ]; then
-    echo "Expected codex exec --json -" >&2
-    exit 64
+[ -t 0 ] && [ -t 1 ] || exit 65
+if [ "$#" -eq 0 ]; then
+    record=blank
+else
+    [ "$#" -eq 2 ] && [ "$1" = -- ] || exit 64
+    record=$(basename "$0")
 fi
-cat > "$HOME/managed-stdin"
-pwd > "$HOME/managed-cwd"
-mkfifo "$HOME/finish-tool"
-cat <<'JSONL'
-{"type":"thread.started","thread_id":"fixture-thread"}
-{"type":"turn.started"}
-{"type":"item.started","item":{"id":"step-1","type":"command_execution","command":"pwd","aggregated_output":"","exit_code":null,"status":"in_progress"}}
-JSONL
-# Keep the tool step active until the test resumes it from the source shell.
-read -r release < "$HOME/finish-tool"
-cat <<'JSONL'
-{"type":"item.completed","item":{"id":"step-1","type":"command_execution","command":"pwd","aggregated_output":"nested","exit_code":0,"status":"completed"}}
-{"type":"item.completed","item":{"id":"step-2","type":"agent_message","text":"Fixture review complete."}}
-{"type":"turn.completed","usage":{"input_tokens":7,"cached_input_tokens":0,"output_tokens":4}}
-JSONL
-"#).unwrap();
-    fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
-    let claude = bin.join("claude");
+pwd > "$record-cwd"
+: > "$record-argv"
+for arg do printf '%s\0' "$arg" >> "$record-argv"; done
+printf 'Interactive fixture ready\nRunning a command\n'
+while IFS= read -r line; do
+    [ "$line" != /exit ] || exit 0
+    printf 'Fixture reply: %s\n' "$line"
+done
+"#,
+        )
+        .unwrap();
+        fs::set_permissions(cli, fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    // Use the isolated test proxy's real listener as a synthetic Docker mapping.
+    // This exercises deduplication across the Docker parser and real lsof output.
+    let docker = bin.join("docker");
     fs::write(
-        &claude,
+        &docker,
         r#"#!/bin/sh
 set -eu
-cat > /dev/null
-cat <<'JSONL'
-{"type":"system","subtype":"init"}
-{"type":"assistant","message":{"content":[{"type":"text","text":"Read fixture status."}]}}
-{"type":"result","subtype":"success","is_error":false,"result":"Claude fixture complete."}
-JSONL
+[ "$1" = --host ] && [ "$3" = ps ] || exit 64
+printf 'fixture-postgres\tpostgres:16\trunning\t127.0.0.1:%s->5432/tcp\n' "$FIXTURE_PORT"
+printf 'fixture-cache\tredis:7\trunning\t6379/tcp\n'
 "#,
     )
     .unwrap();
-    fs::set_permissions(claude, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::set_permissions(docker, fs::Permissions::from_mode(0o700)).unwrap();
     bin
 }
 
@@ -97,10 +97,40 @@ fn reject_proxy_requests(proxy: &TcpListener, requests: &mut Vec<String>) {
     }
 }
 
+// A newly installed second model appears only after Refresh. Both requests
+// stay on loopback and exercise the native pane's normal /api/tags path.
+fn serve_model_catalog(server: &TcpListener, requests: &mut usize) {
+    while let Ok((mut stream, _)) = server.accept() {
+        stream.set_nonblocking(false).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let mut headers = BufReader::new(&stream).lines();
+        assert_eq!(headers.next().unwrap().unwrap(), "GET /api/tags HTTP/1.1");
+        for line in headers {
+            if line.unwrap().is_empty() {
+                break;
+            }
+        }
+        *requests += 1;
+        let body = if *requests == 1 {
+            r#"{"models":[{"name":"fixture-coder:1b"}]}"#
+        } else {
+            r#"{"models":[{"name":"fixture-coder:1b"},{"name":"fixture-reasoner:2b"}]}"#
+        };
+        write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+    }
+}
+
 fn main() {
     if env::args().nth(1).as_deref() == Some("--app") {
         minterm::launch(env::current_dir().unwrap(), false, |window, _| {
-            let script = CString::new(include_str!("terminal.js")).unwrap();
+            let script = CString::new(concat!(
+                include_str!("preferences.js"),
+                "\n",
+                include_str!("terminal.js")
+            ))
+            .unwrap();
             // The driver copies the script while the two arguments are valid.
             unsafe {
                 qa_install(window.ns_window(), script.as_ptr());
@@ -114,9 +144,23 @@ fn main() {
     let home = temp.path().canonicalize().unwrap();
     let workspace = home.join("workspace");
     let nested = workspace.join("nested");
+    let command_dir = home.join("command-target");
     init_repository(&workspace, "main");
     init_repository(&nested, "agent/review");
+    init_repository(&command_dir, "command/fixture");
     let fixture_bin = install_agent_fixtures(&home);
+    let models = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    models.set_nonblocking(true).unwrap();
+    let mut model_requests = 0;
+    let prefs_dir = home.join("Library/Preferences");
+    fs::create_dir_all(&prefs_dir).unwrap();
+    let prefs_file = prefs_dir.join("com.github.alexfdez1010.minterm.json");
+    fs::write(
+        &prefs_file,
+        serde_json::json!({"ollamaHost": format!("http://{}", models.local_addr().unwrap())})
+            .to_string(),
+    )
+    .unwrap();
     let proxy = TcpListener::bind(("127.0.0.1", 0)).unwrap();
     proxy.set_nonblocking(true).unwrap();
     let mut requests = Vec::new();
@@ -153,6 +197,10 @@ int main(void) {
         .env("LANG", "en_US.UTF-8")
         .env("ANTHROPIC_API_KEY", "fixture-not-a-real-key")
         .env(
+            "FIXTURE_PORT",
+            proxy.local_addr().unwrap().port().to_string(),
+        )
+        .env(
             "https_proxy",
             format!("http://{}", proxy.local_addr().unwrap()),
         )
@@ -170,6 +218,7 @@ int main(void) {
         .unwrap();
     let deadline = Instant::now() + Duration::from_secs(45);
     loop {
+        serve_model_catalog(&models, &mut model_requests);
         reject_proxy_requests(&proxy, &mut requests);
         if let Some(status) = app.try_wait().unwrap() {
             assert!(status.success(), "Window test exited with {status}");
@@ -187,6 +236,9 @@ int main(void) {
         "Window test did not finish"
     );
     assert_eq!(requests, ["CONNECT api.anthropic.com:443 HTTP/1.1"]);
+    assert_eq!(model_requests, 2);
+    let stored: serde_json::Value = serde_json::from_slice(&fs::read(prefs_file).unwrap()).unwrap();
+    assert_eq!(stored["ollamaModel"], "fixture-reasoner:2b");
     assert_eq!(
         fs::read_to_string(nested.join("tested-cwd"))
             .unwrap()
@@ -194,13 +246,29 @@ int main(void) {
         nested.to_str().unwrap()
     );
     assert_eq!(
-        fs::read_to_string(home.join("managed-cwd"))
+        fs::read_to_string(nested.join("codex-cwd"))
             .unwrap()
             .trim_end(),
         nested.to_str().unwrap(),
     );
     assert_eq!(
-        fs::read_to_string(home.join("managed-stdin")).unwrap(),
-        "Review fixture changes\nDescribe `git status` literally.",
+        fs::read(nested.join("codex-argv")).unwrap(),
+        b"--\0Review fixture changes\nDescribe `git status` literally.\0",
+    );
+    assert_eq!(
+        fs::read_to_string(command_dir.join("codex-cwd"))
+            .unwrap()
+            .trim_end(),
+        command_dir.to_str().unwrap(),
+    );
+    assert_eq!(
+        fs::read(command_dir.join("codex-argv")).unwrap(),
+        b"--\0touch shell-must-not-run\nReview the current directory\0",
+    );
+    assert!(fs::read(nested.join("blank-argv")).unwrap().is_empty());
+    assert!(!command_dir.join("shell-must-not-run").exists());
+    assert_eq!(
+        fs::read_to_string(command_dir.join("shell-restored")).unwrap(),
+        "restored\n"
     );
 }

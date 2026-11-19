@@ -29,8 +29,11 @@ async function expect(description, condition) {
 const command = 1 << 20, shift = 1 << 17;
 const key = (code, text, modifiers = 0, plain = text) =>
   window.webkit.messageHandlers.testKey.postMessage({code, text, modifiers, plain});
-async function enter(text) {
+async function type(text) {
   for (const letter of text) await key(0, letter);
+}
+async function enter(text) {
+  await type(text);
   await key(36, '\r');
 }
 try {
@@ -114,12 +117,25 @@ try {
   const ports = $('#port-section'), initial = ports.open;
   ports.querySelector('summary').click();
   await expect('Port section toggles', () => ports.open !== initial);
+  const serviceRows = () => [...ports.querySelectorAll('#ports li')];
+  const postgres = () => serviceRows().find(row => row.querySelector('.service-name').textContent === 'fixture-postgres');
+  const cache = () => serviceRows().find(row => row.querySelector('.service-name').textContent === 'fixture-cache');
+  await expect('Docker databases are shown in Development', () =>
+    postgres()?.textContent.includes('127.0.0.1:') && postgres().textContent.includes('5432/tcp') &&
+    postgres().textContent.includes('running') && cache()?.textContent.includes('No host port'));
+  $('#all-filter').click();
+  const boundEndpoint = '127.0.0.1' + postgres().querySelector('.port-number').textContent;
+  await expect('All ports combines the listener and its container', () =>
+    $('#all-filter').getAttribute('aria-pressed') === 'true' && postgres() && cache() &&
+    !serviceRows().some(row => row.title.startsWith(boundEndpoint + ' ')));
+  $('#dev-filter').click();
   ports.querySelector('summary').click();
   await expect('Port section restores', () => ports.open === initial);
   // Launch from the last idle shell so returning focus is unambiguous.
   await key(28, '8', command);
   await expect('Idle shell selected for launch', () => selected() === tabs()[7]);
   const sourceTab = selected(), beforeLaunch = tabs().length;
+  const surface = () => $('.terminal-page.selected');
   const summaries = new Map(), receiveWithSummary = window.minterm.receive;
   window.minterm.receive = (name, data) => {
     if (name === 'summary') summaries.set(data.id, data);
@@ -133,29 +149,89 @@ try {
   task.value = 'Review fixture changes\nDescribe `git status` literally.';
   task.dispatchEvent(new Event('input', {bubbles:true}));
   $('#agent-submit').click();
-  await expect('Managed tab has a task title', () => tabs().length === beforeLaunch + 1 &&
+  await expect('Agent launcher opens a live TUI with the task title', () => tabs().length === beforeLaunch + 1 &&
+    surface()?.dataset.kind === 'agent' && surface().dataset.state === 'live' &&
     selected().textContent.includes('Review fixture changes'));
-  const managedTab = selected(), managed = activeTerminal();
-  const managedRow = () => [...document.querySelectorAll('#agents li')]
+  const launchedTab = selected(), launched = activeTerminal();
+  const launchedRow = () => [...document.querySelectorAll('#agents li')]
     .find(row => row.textContent.includes('Review fixture changes'));
-  const codexId = Number(managedTab.id.slice('tab-'.length));
+  const codexId = Number(surface().id.slice('term-'.length));
   await expect('Codex silently skips summaries without its own key', () =>
-    summaries.get(codexId)?.skipped === true && managedRow()?.querySelector('.agent-summary-text')?.hidden &&
-    managedRow()?.querySelector('.agent-detail')?.textContent === 'Running a command' &&
-    managedRow()?.querySelector('.agent-status')?.dataset.state === 'running');
+    summaries.get(codexId)?.skipped === true && launchedRow()?.querySelector('.agent-summary-text')?.hidden &&
+    launchedRow()?.textContent.includes('Running a command') &&
+    launchedRow()?.querySelector('.agent-status')?.dataset.state === 'running');
   await key(28, '8', command);
   await expect('Source shell stays available during the run', () => selected() === sourceTab);
-  await enter('echo done > "$HOME/finish-tool"');
   await key(25, '9', command);
-  await expect('Running tab is still available', () => selected() === managedTab);
-  await expect('Structured agent reply reaches the terminal', () =>
-    rows(managed).some(line => line.includes('Fixture review complete.')));
+  await expect('Running tab is still available', () => selected() === launchedTab);
+  await enter('review complete');
+  await expect('The agent launched from the inspector accepts follow-up input', () =>
+    rows(launched).some(line => line.includes('Fixture reply: review complete')));
+  await enter('/exit');
   await expect('Finished run remains in Agents', () =>
-    managedRow()?.querySelector('.agent-status')?.dataset.state === 'completed');
+    launchedRow()?.querySelector('.agent-status')?.dataset.state === 'completed');
   await key(13, 'w', command);
   await expect('Closing the run returns to the source shell', () =>
     tabs().length === beforeLaunch && selected() === sourceTab &&
     document.activeElement === $('.terminal-page.selected textarea.xterm-helper-textarea'));
+  const sourceTerminal = activeTerminal();
+  await enter('cd "$HOME/command-target"');
+  await expect('Source shell changed into a different repository', () =>
+    rows(sourceTerminal).some(line => line.includes('command/fixture') && line.includes('❯')));
+  await key(40, 'K', command | shift);
+  await expect('Command-Shift-K activates the composer with the default agent', () =>
+    $('#command-toggle').getAttribute('aria-pressed') === 'true' &&
+    $('#command-agent').textContent.includes('Codex') && document.activeElement === $('#command-input'));
+  const modeTask = 'touch shell-must-not-run';
+  await type(modeTask);
+  await key(53, '\x1b');
+  await expect('Escape returns keyboard input to the terminal', () =>
+    $('#command-form').hidden && document.activeElement === $('.terminal-page.selected textarea.xterm-helper-textarea'));
+  await key(26, '7', command);
+  $('#command-toggle').click();
+  await expect('A different tab has its own command draft', () =>
+    !$('#command-form').hidden && $('#command-input').value === '');
+  await key(53, '\x1b');
+  await key(28, '8', command);
+  $('#command-toggle').click();
+  await expect('The source tab restores its command draft', () => $('#command-input').value === modeTask);
+  await key(36, '\r', shift);
+  await type('Review the current directory');
+  await expect('Shift-Enter creates a second task line', () =>
+    $('#command-input').value === modeTask + '\nReview the current directory');
+  await key(36, '\r');
+  await expect('A companion PTY opens within the selected tab', () => tabs().length === beforeLaunch &&
+    selected() === sourceTab && surface()?.dataset.kind === 'agent' && surface().dataset.state === 'live' &&
+    $('#command-form').hidden && $('#command-toggle').getAttribute('aria-pressed') === 'true');
+  const commandTerminal = activeTerminal();
+  await expect('Interactive CLI has a real TTY', () =>
+    rows(commandTerminal).some(line => line.includes('Interactive fixture ready')));
+  await enter('First message');
+  await expect('Interactive CLI reads the next message', () =>
+    rows(commandTerminal).some(line => line.includes('Fixture reply: First message')));
+  await key(40, 'K', command | shift);
+  await expect('Shell input is restored from agent mode', () =>
+    selected() === sourceTab && tabs().length === beforeLaunch && surface()?.dataset.kind === 'shell' &&
+    document.activeElement === $('.terminal-page.selected textarea.xterm-helper-textarea'));
+  await enter('echo restored > shell-restored');
+  $('#command-toggle').click();
+  await expect('Switching back restores the existing agent terminal', () =>
+    surface()?.dataset.kind === 'agent' && activeTerminal() === commandTerminal);
+  await enter('Second message');
+  await expect('The restored agent still accepts input', () =>
+    rows(commandTerminal).some(line => line.includes('Fixture reply: Second message')));
+  await key(40, 'K', command | shift);
+  await key(26, '7', command);
+  await window.webkit.messageHandlers.testKey.postMessage({menuItem:'New Agent Tab'});
+  await expect('The native menu opens a new agent tab', () => tabs().length === beforeLaunch + 1 &&
+    surface()?.dataset.kind === 'agent' && surface().dataset.state === 'live');
+  const newAgent = activeTerminal();
+  await expect('An empty task opens the interactive CLI', () =>
+    rows(newAgent).some(line => line.includes('Interactive fixture ready')));
+  await enter('/exit');
+  await expect('The direct agent tab observes CLI exit', () => surface().dataset.state === 'ended');
+  await key(13, 'w', command);
+  await expect('Only the direct agent tab closes', () => tabs().length === beforeLaunch);
   await key(38, 'j', command);
   await expect('Assistant opens', () => !$('#assist-panel').hidden);
   $('#question').value = 'What does pwd print?';
@@ -170,13 +246,15 @@ try {
   task.value = 'Read routing fixture';
   task.dispatchEvent(new Event('input', {bubbles:true}));
   $('#agent-submit').click();
-  await expect('Claude task opens', () => selected().textContent.includes('Read routing fixture'));
-  const claudeId = Number(selected().id.slice('tab-'.length));
+  await expect('Claude task opens', () => selected().textContent.includes('Read routing fixture') &&
+    surface()?.dataset.kind === 'agent' && surface().dataset.state === 'live');
+  const claudeId = Number(surface().id.slice('term-'.length));
   // Only Anthropic is configured. The local proxy records its host and rejects
   // the test request. Rust checks that no other connection was attempted.
   await expect('Claude automatically attempts a summary with its own key', () =>
     Boolean(summaries.get(claudeId)?.error) && !summaries.get(claudeId).skipped);
   window.minterm.receive = receiveWithSummary;
+  await verifyPreferences();
   return 'passed';
 } catch (err) {
   return String(err) + '\n' + err.stack;

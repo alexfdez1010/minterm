@@ -16,11 +16,39 @@
   <body>
     <header id="titlebar">
       <div id="tablist" role="tablist" aria-label="Terminal tabs"></div>
-      <button id="new-tab" class="icon" title="New tab (⌘T)" aria-label="New tab">
-        <i data-icon="plus"></i>
-      </button>
+      <div class="new-tab-actions">
+        <button
+          id="new-tab"
+          class="icon"
+          title="New terminal tab (⌘T)"
+          aria-label="New terminal tab"
+        >
+          <i data-icon="plus"></i>
+        </button>
+        <details id="new-tab-options">
+          <summary aria-label="New tab options" title="New tab options">
+            <i data-icon="chevron"></i>
+          </summary>
+          <div class="tab-choices">
+            <button id="new-terminal-tab" type="button">New terminal tab</button>
+            <button id="new-agent-tab" type="button">New agent tab</button>
+          </div>
+        </details>
+      </div>
       <div class="drag-space"></div>
       <div class="tools">
+        <button
+          id="command-toggle"
+          class="icon"
+          type="button"
+          title="Command mode"
+          aria-label="Agent mode"
+          aria-pressed="false"
+          aria-controls="command-form terminals"
+          disabled
+        >
+          <i data-icon="command"></i>
+        </button>
         <button
           id="assist-toggle"
           class="icon"
@@ -46,6 +74,32 @@
     <main>
       <section class="workspace" aria-label="Terminal workspace">
         <div id="terminals"></div>
+        <form id="command-form" aria-label="Command mode" hidden>
+          <div class="command-heading">
+            <label for="command-input">Open <span id="command-agent">Codex</span></label>
+            <bdi id="command-dir"></bdi>
+          </div>
+          <div class="command-entry">
+            <textarea
+              id="command-input"
+              rows="2"
+              maxlength="4000"
+              spellcheck="false"
+              placeholder="Initial task (optional)"
+              aria-describedby="command-dir command-keys"
+            ></textarea>
+            <button
+              class="primary"
+              id="command-submit"
+              type="submit"
+              aria-keyshortcuts="Enter"
+              disabled
+            >
+              Open <kbd aria-hidden="true">↵</kbd>
+            </button>
+          </div>
+          <span id="command-keys">Shift ↵ for a new line <span>Esc to return to shell</span></span>
+        </form>
         <div id="exit-note" hidden><span></span><button id="restart">Open new shell</button></div>
       </section>
       <aside id="sidebar" aria-label="Tools">
@@ -109,6 +163,7 @@
             <select id="provider">
               <option value="openai">OpenAI</option>
               <option value="anthropic">Anthropic</option>
+              <option value="ollama">Ollama</option>
             </select>
             <form id="question-form">
               <label for="question">Ask a question</label>
@@ -119,7 +174,35 @@
                 placeholder="Explain a command or paste an error…"
                 spellcheck="false"
               ></textarea>
-              <p class="hint">Only the text you enter is sent.</p>
+              <button
+                id="assistant-context"
+                type="button"
+                class="assistant-action"
+                aria-controls="assistant-context-editor"
+              >
+                Explain recent output
+              </button>
+              <div id="assistant-context-editor" hidden>
+                <div class="excerpt-heading">
+                  <label for="assistant-excerpt">Terminal excerpt</label>
+                  <button
+                    id="remove-excerpt"
+                    class="icon"
+                    type="button"
+                    aria-label="Remove excerpt"
+                    title="Remove excerpt"
+                  >
+                    <i data-icon="close"></i>
+                  </button>
+                </div>
+                <textarea
+                  id="assistant-excerpt"
+                  rows="4"
+                  maxlength="3500"
+                  spellcheck="false"
+                ></textarea>
+              </div>
+              <p class="hint" id="assistant-sharing">Only the question is sent.</p>
               <button class="primary ask" id="ask" type="submit" disabled>
                 Ask OpenAI<i data-icon="arrow"></i>
               </button>
@@ -127,6 +210,9 @@
             <div class="reply" id="reply" hidden>
               <h2 id="reply-title"></h2>
               <div id="answer" role="status"></div>
+              <button id="assistant-followup" type="button" class="assistant-action" hidden>
+                Draft agent task
+              </button>
             </div>
           </div>
         </section>
@@ -144,6 +230,11 @@
             >
             <label
               ><input type="radio" name="agent" value="claude" /><span>Claude Code</span></label
+            >
+            <label
+              ><input type="radio" name="agent" value="codex-ollama" /><span
+                >Codex with Ollama</span
+              ></label
             >
           </div>
         </fieldset>
@@ -179,6 +270,7 @@
           <select id="excerpt-provider">
             <option value="openai">OpenAI</option>
             <option value="anthropic">Anthropic</option>
+            <option value="ollama">Ollama</option>
           </select>
         </div>
         <div>

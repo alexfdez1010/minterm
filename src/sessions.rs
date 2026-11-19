@@ -25,8 +25,15 @@ type Notify = Arc<dyn Fn(SessionEvent) + Send + Sync>;
 
 #[derive(Debug)]
 pub enum SessionEvent {
-    Output { id: u32, data: String },
-    Exited { id: u32, status: String },
+    Output {
+        id: u32,
+        data: String,
+    },
+    Exited {
+        id: u32,
+        status: String,
+        success: bool,
+    },
 }
 
 pub struct Sessions {
@@ -81,14 +88,43 @@ impl Sessions {
                 cmd.env("PATH", path);
             }
         }
-        cmd.env("TERM", "xterm-256color");
-        cmd.env("COLORTERM", "truecolor");
-        cmd.env("TERM_PROGRAM", "Minterm");
-        cmd.env("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
-        if std::env::var_os("LANG").is_none() {
-            cmd.env("LANG", "en_US.UTF-8");
-        }
+        terminal_environment(&mut cmd);
         self.spawn(id, cwd, size(cols, rows), cmd)
+    }
+
+    pub fn open_agent(
+        &mut self,
+        id: u32,
+        cwd: &Path,
+        agent: &str,
+        prompt: &str,
+        cols: u16,
+        rows: u16,
+    ) -> Result<(), String> {
+        if self.tabs.contains_key(&id) {
+            return Err("This session is already open".into());
+        }
+        if prompt.len() > 128 * 1024 || prompt.contains('\0') {
+            return Err("Enter a task of up to 128 KiB without NUL characters.".into());
+        }
+        if !cwd.is_absolute() || !cwd.is_dir() {
+            return Err("The active working directory is unavailable.".into());
+        }
+        let prefs = crate::preferences::read();
+        let name = if agent == "codex-ollama" {
+            "codex"
+        } else {
+            agent
+        };
+        let cli = crate::agent_cli::resolve(name, prefs.executable(name))?;
+        let ollama = (agent == "codex-ollama")
+            .then_some((prefs.ollama_host.as_str(), prefs.ollama_model.as_str()));
+        self.spawn(
+            id,
+            cwd,
+            size(cols, rows),
+            interactive_agent(cli, cwd, prompt, ollama),
+        )
     }
 
     fn spawn(
@@ -147,18 +183,28 @@ impl Sessions {
                     queue.input.clear();
                     was_closed
                 };
-                let status = match result {
-                    Ok(true) => shell.wait().unwrap_or_else(|error| error),
+                let (status, success) = match result {
+                    Ok(true) => shell
+                        .wait()
+                        .map(|s| (s.to_string(), s.success()))
+                        .unwrap_or_else(|error| (error, false)),
                     _ => {
                         shell.terminate();
-                        result
-                            .err()
-                            .map(|e| e.to_string())
-                            .unwrap_or_else(|| "Session closed".to_owned())
+                        (
+                            result
+                                .err()
+                                .map(|e| e.to_string())
+                                .unwrap_or_else(|| "Session closed".to_owned()),
+                            false,
+                        )
                     }
                 };
                 if !explicitly_closed {
-                    notify(SessionEvent::Exited { id, status });
+                    notify(SessionEvent::Exited {
+                        id,
+                        status,
+                        success,
+                    });
                 }
             })
             .map_err(message)?;
@@ -235,6 +281,14 @@ impl Sessions {
     }
 
     pub fn cwd(&self, id: u32) -> Option<PathBuf> {
+        self.read_cwd(id, true)
+    }
+
+    pub fn live_cwd(&self, id: u32) -> Option<PathBuf> {
+        self.read_cwd(id, false)
+    }
+
+    fn read_cwd(&self, id: u32, allow_initial: bool) -> Option<PathBuf> {
         let session = self.tabs.get(&id)?;
         let queue = session.queue.lock().unwrap();
         if queue.closed {
@@ -245,7 +299,7 @@ impl Sessions {
             .process_group_leader()
             .and_then(process_cwd)
             .or_else(|| process_cwd(session.shell))
-            .or_else(|| Some(session.start.clone()))
+            .or_else(|| allow_initial.then(|| session.start.clone()))
     }
 
     pub fn close(&mut self, id: u32) {
@@ -270,6 +324,55 @@ impl Sessions {
 impl Drop for Sessions {
     fn drop(&mut self) {
         self.shutdown();
+    }
+}
+
+fn interactive_agent(
+    cli: crate::agent_cli::AgentCli,
+    cwd: &Path,
+    prompt: &str,
+    ollama: Option<(&str, &str)>,
+) -> CommandBuilder {
+    // portable-pty falls back to HOME if the cwd disappears. The final chdir
+    // in env either succeeds in that exact directory or aborts before exec.
+    let mut cmd = CommandBuilder::new("/usr/bin/env");
+    cmd.arg("-C");
+    cmd.arg(cwd);
+    cmd.arg(cli.program);
+    if let Some((host, model)) = ollama {
+        cmd.args(["--oss", "--local-provider", "ollama"]);
+        if !model.trim().is_empty() {
+            cmd.args(["-m", model]);
+        }
+        let base = host.trim_end_matches('/');
+        cmd.env(
+            "CODEX_OSS_BASE_URL",
+            if base.ends_with("/v1") {
+                base.to_owned()
+            } else {
+                format!("{base}/v1")
+            },
+        );
+    }
+    if !prompt.is_empty() {
+        cmd.arg("--");
+        cmd.arg(prompt);
+    }
+    cmd.cwd(cwd);
+    if let Some(path) = cli.path {
+        cmd.env("PATH", path);
+    }
+    terminal_environment(&mut cmd);
+    cmd
+}
+
+fn terminal_environment(cmd: &mut CommandBuilder) {
+    cmd.env("TERM", "xterm-256color");
+    cmd.env("COLORTERM", "truecolor");
+    cmd.env("TERM_PROGRAM", "Minterm");
+    cmd.env("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
+    if std::env::var_os("LANG").is_none() {
+        cmd.env("LANG", "en_US.UTF-8");
     }
 }
 
@@ -506,10 +609,10 @@ struct Shell {
 }
 
 impl Shell {
-    fn wait(&mut self) -> Result<String, String> {
+    fn wait(&mut self) -> Result<portable_pty::ExitStatus, String> {
         let status = self.child.wait().map_err(message)?;
         self.reaped = true;
-        Ok(status.to_string())
+        Ok(status)
     }
 
     fn terminate(&mut self) {
@@ -655,6 +758,150 @@ mod tests {
             );
             assert!(!work.join("BRANCH_INJECTION").exists());
             assert!(!work.join("DIR_INJECTION").exists());
+            if shell.ends_with("bash") {
+                std::fs::write(work.join("minterm-completion-fixture"), "").unwrap();
+                sessions
+                    .write(ID, b"printf '<%s>\\n' minterm-complet\x1b[Z\r")
+                    .unwrap();
+                let completion = read_until(&sessions, &rx, "❯");
+                assert!(
+                    completion.contains("\r\n<minterm-completion-fixture>\r\n"),
+                    "{completion:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn shell_suggestions_accept_only_on_explicit_key() {
+        let fixture = tempfile::tempdir().unwrap();
+        let home = fixture.path();
+        std::fs::write(
+            home.join(".zshrc"),
+            r#"
+            bindkey -e
+            _snap() {
+              local -a mine=("${(@M)region_highlight:#* memo=minterm-suggestion}")
+              print -rl -- "$BUFFER" "$POSTDISPLAY" "${#mine}" > "$HOME/snapshot"
+            }
+            zle -N _snap
+            bindkey '^X?' _snap
+            alias mintfixturecommand='print -r -- EXPLICITLY_ACCEPTED'
+        "#,
+        )
+        .unwrap();
+        let (tx, rx) = mpsc::channel();
+        let mut sessions = Sessions::new(move |event| {
+            let _ = tx.send(event);
+        });
+        let mut cmd = CommandBuilder::new_default_prog();
+        cmd.env_clear();
+        for (key, value) in [
+            ("SHELL", "/bin/zsh"),
+            ("TERM", "xterm-256color"),
+            ("LANG", "en_US.UTF-8"),
+            ("PATH", "/bin:/usr/bin"),
+        ] {
+            cmd.env(key, value);
+        }
+        cmd.env("HOME", home);
+        cmd.cwd(home);
+        sessions.prompt.configure(&mut cmd).unwrap();
+        sessions.spawn(ID, home, size(140, 24), cmd).unwrap();
+        read_until(&sessions, &rx, "❯");
+        let snapshot = |expected: &str| {
+            let deadline = Instant::now() + Duration::from_secs(3);
+            loop {
+                sessions.write(ID, b"\x18?").unwrap();
+                thread::sleep(Duration::from_millis(15));
+                // The hidden test does not have a WebView to acknowledge repaint output.
+                for _ in rx.try_iter() {
+                    sessions.ack_output(ID);
+                }
+                let value = std::fs::read_to_string(home.join("snapshot")).unwrap_or_default();
+                if value == expected {
+                    break;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "Expected {expected:?}, received {value:?}"
+                );
+            }
+        };
+        sessions.write(ID, b"mintfix").unwrap();
+        snapshot("mintfix\nturecommand\n1\n");
+        sessions.write(ID, b"\x1b[C").unwrap();
+        snapshot("mintfixturecommand\n\n0\n");
+        sessions.write(ID, b"\r").unwrap();
+        read_until(&sessions, &rx, "EXPLICITLY_ACCEPTED");
+        sessions
+            .write(ID, b"print -r -- history-fixture\r")
+            .unwrap();
+        read_until(&sessions, &rx, "❯");
+        sessions.write(ID, b"print -r -- hist").unwrap();
+        snapshot("print -r -- hist\nory-fixture\n1\n");
+        sessions.write(ID, b"\x1b[D").unwrap();
+        snapshot("print -r -- hist\n\n0\n");
+        sessions.write(ID, b"\x1b[C").unwrap();
+        snapshot("print -r -- hist\nory-fixture\n1\n");
+        sessions.write(ID, b"\r").unwrap();
+        let output = read_until(&sessions, &rx, "❯");
+        assert!(
+            output.contains("\r\nhist\r\n"),
+            "Enter accepted the preview: {output:?}"
+        );
+    }
+
+    #[test]
+    fn interactive_agent_gets_a_tty_literal_argument_and_the_selected_directory() {
+        let fixture = tempfile::tempdir().unwrap();
+        let work = fixture.path().join("working directory");
+        std::fs::create_dir(&work).unwrap();
+        let program = fixture.path().join("custom agent");
+        std::fs::write(
+            &program,
+            r#"#!/bin/sh
+            test -t 0 && test -t 1 && test -t 2 || exit 41
+            printf '%s\0' "$@" > args
+            printf '%s' "$CODEX_OSS_BASE_URL" > endpoint
+            printf 'ready\n'
+            read -r line
+            printf '<%s>\n' "$line"
+        "#,
+        )
+        .unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let prompt = "--leading option $(touch surprise)\nand another line";
+        for oss in [None, Some(("http://localhost:1234", "chosen model"))] {
+            let (tx, rx) = mpsc::channel();
+            let mut sessions = Sessions::new(move |event| {
+                let _ = tx.send(event);
+            });
+            let cli = crate::agent_cli::AgentCli {
+                program: program.clone(),
+                path: None,
+            };
+            let cmd = interactive_agent(cli, &work, prompt, oss);
+            sessions.spawn(ID, &work, size(100, 20), cmd).unwrap();
+            read_until(&sessions, &rx, "ready");
+            assert_eq!(sessions.live_cwd(ID).unwrap(), work.canonicalize().unwrap());
+            let args = std::fs::read(work.join("args")).unwrap();
+            let mut expected = Vec::new();
+            if oss.is_some() {
+                expected.extend_from_slice(b"--oss\0--local-provider\0ollama\0-m\0chosen model\0");
+                assert_eq!(
+                    std::fs::read_to_string(work.join("endpoint")).unwrap(),
+                    "http://localhost:1234/v1"
+                );
+            }
+            expected.extend_from_slice(b"--\0");
+            expected.extend_from_slice(prompt.as_bytes());
+            expected.push(0);
+            assert_eq!(args, expected);
+            assert!(!work.join("surprise").exists());
+            sessions.write(ID, b"interactive input\r").unwrap();
+            read_until(&sessions, &rx, "<interactive input>");
         }
     }
 
@@ -671,7 +918,7 @@ mod tests {
         let output = read_until(&sessions, &rx, "[hello]");
         assert!(output.contains("32 106"), "{output:?}");
         assert!(
-            matches!(next(&rx), SessionEvent::Exited { id: ID, status } if status.contains('7'))
+            matches!(next(&rx), SessionEvent::Exited { id: ID, status, .. } if status.contains('7'))
         );
     }
 

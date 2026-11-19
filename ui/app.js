@@ -1,18 +1,27 @@
-import { $, element, icon, send } from "./shared.js";
+import { $, agentNames, element, icon, send } from "./shared.js";
 import { initInspector, refreshInspector, receiveServices, receiveAgents } from "./inspector.js";
 import { Activity } from "./activity.js";
 import { theme, terminalFont, defaultFontSize } from "./theme.js";
-import { initAssistant, receiveAnswer } from "./assistant.js";
+import { initAssistant, receiveAnswer, updateContextAction } from "./assistant.js";
+import { CommandMode } from "./command.js";
 
 const tabs = new Map();
-const activity = new Activity((id) => tabs.get(id)?.term, receiveAgents);
+const sessions = new Map();
+const activity = new Activity((id) => sessions.get(id)?.term, receiveAgents);
 let active,
   nextId = 1,
   startPath = "~",
   fontSize = defaultFontSize;
 let panel = window.innerWidth > 770 ? "inspector" : null;
 let contextTimer, noticeTimer, confirmation, previousPanel;
-const current = () => tabs.get(active);
+const currentTab = () => tabs.get(active);
+const visibleSession = (tab) => (tab?.mode === "agent" ? tab.companion : tab?.base);
+const current = () => visibleSession(currentTab());
+const commandMode = new CommandMode(currentTab, openInteractive, toggleCommand);
+function focusSession() {
+  if (currentTab()?.mode === "compose") $("command-input").focus();
+  else current()?.term.focus();
+}
 function outputBytes(encoded) {
   if (Uint8Array.fromBase64) return Uint8Array.fromBase64(encoded);
   const raw = atob(encoded);
@@ -30,82 +39,101 @@ function notice(text) {
   }, 6500);
 }
 function requestContext() {
-  if (current()?.state === "live") send("context", { id: active });
+  const session = current();
+  if (session?.state === "live") send("context", { id: session.id });
 }
 function scheduleContext() {
   clearTimeout(contextTimer);
   contextTimer = setTimeout(requestContext, 240);
 }
 function updateTab(tab) {
-  const pathLabel = (tab.path || startPath).split("/").filter(Boolean).pop() || "/";
-  const title = tab.title.replace(/(^|:\s+)(?:~?\/)[^\n]*\/([^/]+)$/, "$1$2");
-  const name = title || pathLabel;
+  const session = visibleSession(tab);
+  if (tab.iconKind !== session.kind) {
+    tab.button.firstElementChild.replaceWith(
+      icon(session.kind === "agent" ? "agents" : "terminal"),
+    );
+    tab.iconKind = session.kind;
+  }
+  const pathLabel = (session.path || startPath).split("/").filter(Boolean).pop() || "/";
+  const title = session.title.replace(/(^|:\s+)(?:~?\/)[^\n]*\/([^/]+)$/, "$1$2");
+  const name =
+    session.kind === "agent"
+      ? session.taskTitle || agentNames[session.agent] + " · " + pathLabel
+      : title || pathLabel;
   tab.label.textContent = name;
-  const details = [tab.path];
-  if (tab.git) {
-    const ref = tab.git.detached ? "HEAD " + tab.git.branch : tab.git.branch;
-    const changes = tab.git.dirty === true ? " · Tracked changes" : "";
-    details.push(ref + changes);
+  const details = [session.path];
+  if (session.git) {
+    const changes = session.git.dirty === true ? " · Tracked changes" : "";
+    details.push((session.git.detached ? "HEAD " : "") + session.git.branch + changes);
   }
   tab.button.title = details.join("\n");
   tab.close.setAttribute("aria-label", "Close " + name);
 }
 function updateSessionState() {
-  const tab = current();
-  if (!tab) return;
-  tab.page.dataset.state = tab.state;
-  tab.page.setAttribute("aria-busy", String(tab.state === "opening"));
-  $("exit-note").hidden = tab.state !== "ended" && tab.state !== "failed";
-  $("exit-note").querySelector("span").textContent = tab.reason || "";
+  const session = current();
+  if (!session) return;
+  session.page.dataset.state = session.state;
+  session.page.setAttribute("aria-busy", String(session.state === "opening"));
+  $("exit-note").hidden = session.state !== "ended" && session.state !== "failed";
+  $("exit-note").querySelector("span").textContent = session.reason || "";
+  $("restart").textContent = session.kind === "agent" ? "Restart agent" : "Open new shell";
 }
 function fitActive() {
-  const tab = current();
-  if (!tab) return;
-  tab.fit.fit();
+  const session = current();
+  if (!session) return;
+  session.fit.fit();
   updateSessionState();
 }
 function markSelected(tab, selected) {
-  tab.page.classList.toggle("selected", selected);
+  const visible = visibleSession(tab);
+  tab.button.setAttribute("aria-controls", visible.page.id);
+  for (const session of [tab.base, tab.companion]) {
+    if (!session) continue;
+    session.page.classList.toggle("selected", selected && session === visible);
+    session.page.inert = !selected || session !== visible;
+  }
   tab.row.classList.toggle("active", selected);
   tab.button.setAttribute("aria-selected", String(selected));
   tab.button.tabIndex = selected ? 0 : -1;
-  tab.page.inert = !selected;
 }
 function selectTab(id) {
   const tab = tabs.get(id);
   if (!tab) return;
-  const previous = current();
+  const previous = currentTab();
   if (previous && previous !== tab) markSelected(previous, false);
   active = id;
   markSelected(tab, true);
+  updateTab(tab);
   tab.row.scrollIntoView({ block: "nearest", inline: "nearest" });
-  tab.term.focus();
+  commandMode.sync();
+  focusSession();
+  updateContextAction(current());
   fitActive();
   requestContext();
 }
-function newTab(task) {
-  const from = active;
-  const id = nextId++;
+function setMode(tab, mode) {
+  tab.mode = mode;
+  tab.base.term.options.disableStdin = mode === "compose";
+  selectTab(tab.id);
+}
+function toggleCommand() {
+  const tab = currentTab();
+  if (!tab) return;
+  if (tab.mode !== "shell") {
+    setMode(tab, "shell");
+  } else if (tab.companion && ["opening", "live"].includes(tab.companion.state)) {
+    setMode(tab, "agent");
+  } else {
+    setMode(tab, "compose");
+  }
+}
+function createSession(id, tabId, kind, source) {
   const page = element("div", "terminal-page");
   page.id = "term-" + id;
+  page.dataset.kind = kind;
   page.setAttribute("role", "tabpanel");
-  page.setAttribute("aria-labelledby", "tab-" + id);
+  page.setAttribute("aria-labelledby", "tab-" + tabId);
   $("terminals").append(page);
-  const row = element("div", "tab");
-  row.dataset.id = String(id);
-  const button = element("button", "tab-select");
-  button.id = "tab-" + id;
-  button.setAttribute("role", "tab");
-  button.setAttribute("aria-controls", page.id);
-  const label = element("span");
-  button.append(icon("terminal"), label);
-  button.onclick = () => selectTab(id);
-  const close = element("button", "tab-close");
-  close.title = "Close tab (⌘W)";
-  close.append(icon("close"));
-  close.onclick = () => send("close", { id });
-  row.append(button, close);
-  $("tablist").append(row);
   const term = new Terminal({
     theme,
     fontFamily: terminalFont,
@@ -124,59 +152,112 @@ function newTab(task) {
   const fit = new FitAddon.FitAddon();
   term.loadAddon(fit);
   term.open(page);
-  const tab = {
+  const session = {
     id,
-    row,
+    tabId,
+    kind,
     page,
-    button,
-    label,
-    close,
     term,
     fit,
-    title: task ? task.prompt.trim().replace(/\s+/g, " ").slice(0, 80) : "",
-    managed: !!task,
-    git: current()?.git,
-    path: current()?.path || startPath,
+    title: "",
+    git: source?.git,
+    path: source?.path || startPath,
+    cwdKnown: false,
     state: "opening",
     pending: [],
   };
-  tabs.set(id, tab);
+  sessions.set(id, session);
+  term.onSelectionChange(() => {
+    if (current() === session && panel === "assist") updateContextAction(session);
+  });
   term.onData((data) => {
-    if (tab.managed) {
-      if (data === "\x03" && tab.state === "live") send("stopJob", { id });
+    // Cursor reports and arrow navigation do not answer an approval prompt.
+    if (/[\r\n\x03\x04]/.test(data) || /^(?:y|n|\x1b)$/i.test(data)) activity.input(id);
+    if (session.state === "opening") {
+      session.pending.push(data);
       return;
     }
-    activity.input(id);
-    if (tab.state === "opening") {
-      tab.pending.push(data);
-      return;
-    }
-    if (tab.state !== "live") return;
+    if (session.state !== "live") return;
     send("write", { id, data });
     if (data.includes("\r")) scheduleContext();
   });
   term.onBinary((data) => {
-    if (!tab.managed && tab.state === "live") send("binary", { id, data: btoa(data) });
+    if (session.state === "live") send("binary", { id, data: btoa(data) });
   });
   term.onResize(({ cols, rows }) => {
-    if (!tab.managed && tab.state === "live") send("resize", { id, cols, rows });
-    if (id === active) updateSessionState();
+    if (session.state === "live") send("resize", { id, cols, rows });
+    if (current() === session) updateSessionState();
   });
   term.onTitleChange((title) => {
-    if (tab.managed) return;
-    tab.title = title
+    session.title = title
       .replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, "")
       .slice(0, 180);
-    updateTab(tab);
+    const tab = tabs.get(tabId);
+    if (tab && visibleSession(tab) === session) updateTab(tab);
   });
-  updateTab(tab);
+  return session;
+}
+function newTab(task, from = current()?.id, mode = commandMode.newTabMode) {
+  const id = nextId++;
+  const row = element("div", "tab");
+  row.dataset.id = String(id);
+  const button = element("button", "tab-select");
+  button.id = "tab-" + id;
+  button.setAttribute("role", "tab");
+  const label = element("span");
+  button.append(icon("terminal"), label);
+  button.onclick = () => selectTab(id);
+  const close = element("button", "tab-close");
+  close.title = "Close tab (⌘W)";
+  close.append(icon("close"));
+  close.onclick = () => send("close", { id });
+  row.append(button, close);
+  $("tablist").append(row);
+  const base = createSession(id, id, "shell", sessions.get(from));
+  const tab = { id, row, button, label, close, base, companion: null, mode: "shell", draft: "" };
+  tabs.set(id, tab);
   selectTab(id);
-  if (task) {
-    activity.start(id, task);
-    send("startJob", { id, from, agent: task.agent, prompt: task.prompt });
-  } else {
-    send("open", { id, from, cols: term.cols, rows: term.rows });
+  send("open", { id, from, cols: base.term.cols, rows: base.term.rows });
+  if (task || mode === "agent")
+    openInteractive(tab, task?.agent || commandMode.agent, task?.prompt || "");
+  return tab;
+}
+function dispatchInteractive(tab) {
+  const session = tab.companion;
+  if (!session || !tab.base.cwdKnown || session.initialPrompt === undefined) return;
+  const prompt = session.initialPrompt;
+  delete session.initialPrompt;
+  send("openAgent", {
+    id: session.id,
+    from: tab.base.id,
+    agent: session.agent,
+    prompt,
+    cols: session.term.cols,
+    rows: session.term.rows,
+  });
+}
+function openInteractive(tab, agent, prompt) {
+  if (tab.companion) {
+    if (["opening", "live"].includes(tab.companion.state)) {
+      setMode(tab, "agent");
+      return;
+    }
+    disposeSession(tab.companion);
   }
+  const companion = createSession(nextId++, tab.id, "agent", tab.base);
+  companion.agent = agent;
+  companion.initialPrompt = prompt;
+  companion.taskTitle = prompt.trim().replace(/\s+/g, " ").slice(0, 80);
+  activity.start(companion.id, { agent, prompt });
+  tab.companion = companion;
+  setMode(tab, "agent");
+  dispatchInteractive(tab);
+}
+function disposeSession(session) {
+  sessions.delete(session.id);
+  activity.close(session.id);
+  session.term.dispose();
+  session.page.remove();
 }
 function discard(id) {
   const tab = tabs.get(id);
@@ -184,9 +265,8 @@ function discard(id) {
   const order = [...tabs.keys()];
   const index = order.indexOf(id);
   tabs.delete(id);
-  activity.close(id);
-  tab.term.dispose();
-  tab.page.remove();
+  disposeSession(tab.base);
+  if (tab.companion) disposeSession(tab.companion);
   tab.row.remove();
   if (!tabs.size) {
     send("quit");
@@ -206,8 +286,10 @@ function setPanel(next, toggle = true) {
   $("inspector-toggle").setAttribute("aria-pressed", String(panel === "inspector"));
   $("assist-toggle").setAttribute("aria-pressed", String(panel === "assist"));
   if (panel === "inspector") refreshInspector();
-  if (panel === "assist") $("question").focus();
-  else current()?.term.focus();
+  if (panel === "assist") {
+    updateContextAction(current());
+    $("question").focus();
+  } else focusSession();
   fitActive();
 }
 function showConfirmation({ id }) {
@@ -227,8 +309,18 @@ function command(name) {
     return;
   }
   switch (name) {
+    case "newTerminalTab":
+      newTab(undefined, undefined, "terminal");
+      break;
+    case "newAgentTab":
+      newTab(undefined, undefined, "agent");
+      break;
     case "new":
       newTab();
+      break;
+    case "commandMode":
+      if (window.innerWidth <= 770 && panel) setPanel(null, false);
+      toggleCommand();
       break;
     case "close":
       if (active) send("close", { id: active });
@@ -267,55 +359,81 @@ function command(name) {
         name === "reset-size"
           ? defaultFontSize
           : Math.max(9, Math.min(28, fontSize + (name === "larger" ? 1 : -1)));
-      for (const tab of tabs.values()) tab.term.options.fontSize = fontSize;
+      for (const session of sessions.values()) session.term.options.fontSize = fontSize;
       fitActive();
       break;
   }
 }
 window.minterm = {
   receive(name, data) {
-    const tab = tabs.get(data?.id);
+    const session = sessions.get(data?.id);
+    const tab = tabs.get(session?.tabId);
     switch (name) {
       case "ready":
         startPath = data.path;
+        commandMode.preferences(data.preferences);
         newTab();
         setPanel(panel, false);
         if (data.vaultError) notice(data.vaultError);
         break;
       case "opened":
-        if (tab) {
-          tab.path = data.path;
-          tab.state = "live";
+        if (session) {
+          session.path = data.path;
+          session.cwdKnown = true;
+          session.state = "live";
+          session.page.dataset.state = session.state;
+          if (session.pending.length)
+            send("write", { id: session.id, data: session.pending.join("") });
+          session.pending.length = 0;
+          send("resize", { id: session.id, cols: session.term.cols, rows: session.term.rows });
+          send("context", { id: session.id });
+          if (session === tab.base) dispatchInteractive(tab);
+          else activity.update({ id: session.id, state: "running", detail: "Session open" });
           updateTab(tab);
-          if (tab.pending.length) send("write", { id: tab.id, data: tab.pending.join("") });
-          tab.pending.length = 0;
-          if (!tab.managed)
-            send("resize", { id: tab.id, cols: tab.term.cols, rows: tab.term.rows });
-          send("context", { id: tab.id });
-          if (active === tab.id) updateSessionState();
+          if (tab.id === active) {
+            commandMode.sync();
+            updateSessionState();
+          }
         }
         break;
       case "output":
-        if (tab) tab.term.write(outputBytes(data.data), () => send("ack", { id: tab.id }));
+        if (session)
+          session.term.write(outputBytes(data.data), () => {
+            send("ack", { id: data.id });
+            if (session.kind === "agent") activity.observe(session.id);
+          });
         break;
       case "exited":
       case "failed":
-        if (tab) {
-          tab.state = name === "failed" ? "failed" : "ended";
-          tab.reason = data.error || data.status;
-          if (tab.managed && name === "failed")
-            activity.update({ id: tab.id, state: "failed", detail: tab.reason });
-          if (active === tab.id) updateSessionState();
+        if (session) {
+          session.state = name === "failed" ? "failed" : "ended";
+          session.reason = data.error || data.status;
+          session.page.dataset.state = session.state;
+          if (session.kind === "agent") {
+            const success = name === "exited" && (data.success ?? data.status === "Success");
+            // The host can reap the child while xterm still has a final write queued.
+            session.term.write("", () => activity.finish(session.id, success, session.reason));
+          }
+          if (session === tab.base && !session.cwdKnown && tab.companion) {
+            tab.companion.reason = session.reason;
+            tab.companion.state = "failed";
+            delete tab.companion.initialPrompt;
+            activity.finish(tab.companion.id, false, "Could not open the source shell");
+          }
+          if (tab.id === active) {
+            commandMode.sync();
+            updateSessionState();
+          }
         }
         break;
       case "closed":
         discard(data.id);
         break;
       case "context":
-        if (tab) {
-          Object.assign(tab, { path: data.path, git: data.git });
+        if (session) {
+          Object.assign(session, { path: data.path, git: data.git });
           updateTab(tab);
-          if (active === tab.id) updateSessionState();
+          if (active === tab.id && tab.mode === "compose") commandMode.sync();
         }
         break;
       case "services":
@@ -323,9 +441,6 @@ window.minterm = {
         break;
       case "agents":
         activity.scan(data);
-        break;
-      case "jobStatus":
-        activity.update(data);
         break;
       case "summary":
         activity.receiveSummary(data);
@@ -335,6 +450,9 @@ window.minterm = {
         break;
       case "menu":
         command(data);
+        break;
+      case "preferences":
+        commandMode.preferences(data);
         break;
       case "confirm":
         showConfirmation(data);
@@ -347,15 +465,42 @@ window.minterm = {
 };
 
 $("new-tab").onclick = () => newTab();
+const tabOptions = $("new-tab-options");
+for (const mode of ["terminal", "agent"]) {
+  $("new-" + mode + "-tab").onclick = () => {
+    tabOptions.open = false;
+    newTab(undefined, undefined, mode);
+  };
+}
+document.addEventListener("pointerdown", (event) => {
+  if (tabOptions.open && !tabOptions.contains(event.target)) tabOptions.open = false;
+});
+tabOptions.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && tabOptions.open) {
+    event.preventDefault();
+    tabOptions.open = false;
+    tabOptions.querySelector("summary").focus();
+  }
+});
 $("restart").onclick = () => {
-  const old = active;
-  newTab();
-  send("close", { id: old });
+  const tab = currentTab();
+  if (!tab) return;
+  if (current().kind === "agent") {
+    if (!tab.base.cwdKnown) {
+      setMode(tab, "shell");
+      return;
+    }
+    openInteractive(tab, current().agent, "");
+  } else {
+    newTab(undefined, tab.id, "terminal");
+    send("close", { id: tab.id });
+  }
 };
 $("inspector-toggle").onclick = () => setPanel("inspector");
+$("command-toggle").onclick = () => command("commandMode");
 $("assist-toggle").onclick = () => setPanel("assist");
 $("cancel").onclick = () => $("confirm").close();
-$("confirm").onclose = () => current()?.term.focus();
+$("confirm").onclose = () => focusSession();
 $("confirm-close").onclick = () => {
   $("confirm").close();
   if (confirmation === "window") send("quit", { force: true });
@@ -363,12 +508,16 @@ $("confirm-close").onclick = () => {
 };
 initInspector(
   (id) => {
+    const session = sessions.get(id);
+    const tab = tabs.get(session?.tabId);
+    if (!tab) return;
     if (window.innerWidth <= 770) setPanel(null, false);
-    selectTab(id);
+    setMode(tab, session === tab.companion ? "agent" : "shell");
   },
   (id) => {
-    const index = [...tabs.keys()].indexOf(id);
-    return index < 0 ? "Shell" : "Tab " + (index + 1) + " · " + tabs.get(id).label.textContent;
+    const tab = tabs.get(sessions.get(id)?.tabId);
+    if (!tab) return "Shell";
+    return "Tab " + ([...tabs.keys()].indexOf(tab.id) + 1) + " · " + tab.label.textContent;
   },
   (task) => {
     if (window.innerWidth <= 770) setPanel(null, false);
@@ -376,10 +525,25 @@ initInspector(
   },
   (id) => activity.preview(id),
   (input) => activity.summarize(input),
+  () => commandMode.agent,
 );
-initAssistant();
+initAssistant(current, notice, (id, task) => {
+  const session = sessions.get(id);
+  let tab = tabs.get(session?.tabId);
+  if (!tab) {
+    notice("The terminal tab for this answer has closed.");
+    return;
+  }
+  if (window.innerWidth <= 770 && panel) setPanel(null, false);
+  // Preserve a running TUI and any unfinished draft when preparing a new task.
+  if (tab.draft || (tab.companion && ["opening", "live"].includes(tab.companion.state))) {
+    tab = newTab(undefined, id, "terminal");
+  }
+  tab.draft = task;
+  setMode(tab, "compose");
+});
 $("titlebar").addEventListener("mousedown", (e) => {
-  if (e.button === 0 && !e.target.closest("button, .tab")) send("drag");
+  if (e.button === 0 && !e.target.closest("button, summary, .tab")) send("drag");
 });
 document.addEventListener(
   "keydown",
@@ -421,7 +585,7 @@ document.addEventListener(
     ) {
       e.preventDefault();
       changeTab(e.key === "ArrowLeft" ? -1 : 1);
-      current()?.button.focus();
+      currentTab()?.button.focus();
     }
   },
   true,

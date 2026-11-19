@@ -4,7 +4,7 @@ const states = {
   running: "Running",
   inputRequested: "Input requested",
   needsAttention: "Needs attention",
-  completed: "Completed",
+  completed: "Session ended",
   failed: "Failed",
   stopped: "Stopped",
 };
@@ -44,7 +44,14 @@ function bindDialog(dialog, form, field, submit, cancel, restoreFocus, onSubmit)
   };
 }
 
-export function initAgents(select, label, launch, preview, summarize) {
+export function initAgents(
+  select,
+  label,
+  launch,
+  preview,
+  summarize,
+  preferredAgent = () => "codex",
+) {
   selectSession = select;
   tabLabel = label;
   readExcerpt = preview;
@@ -54,6 +61,7 @@ export function initAgents(select, label, launch, preview, summarize) {
   const task = $("agent-prompt");
   $("start-agent").onclick = () => {
     form.reset();
+    form.elements.agent.value = preferredAgent();
     $("agent-submit").disabled = true;
     launcher.showModal();
     task.focus();

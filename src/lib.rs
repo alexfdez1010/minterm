@@ -1,12 +1,13 @@
+mod agent_cli;
 mod agents;
 mod app;
 mod assets;
 mod assistant;
 mod credentials;
 mod inspect;
-mod jobs;
 pub mod key_command;
 mod menu;
+mod preferences;
 mod prompt;
 mod sessions;
 mod settings;
@@ -46,8 +47,9 @@ pub fn launch(
         .with_fullsize_content_view(true)
         .with_traffic_light_inset(LogicalPosition::new(18., 18.))
         .build(&event_loop)?;
-    let menu = menu::install()?;
+    let (menu, switch_mode) = menu::install()?;
     let proxy = event_loop.create_proxy();
+    settings::notify_changes(proxy.clone());
     let menu_proxy = proxy.clone();
     muda::MenuEvent::set_event_handler(Some(move |event: muda::MenuEvent| {
         let _ = menu_proxy.send_event(Message::Menu(event.id.0));
@@ -84,6 +86,11 @@ pub fn launch(
                 let _ = window.drag_window();
             }
             Event::UserEvent(Message::Menu(name)) if name == "settings" => settings::show(),
+            Event::UserEvent(Message::Preferences) => {
+                let _ = switch_mode
+                    .set_key_accelerator(preferences::accelerator(&preferences::read().shortcut));
+                app.receive(Message::Preferences);
+            }
             Event::UserEvent(Message::Menu(name))
                 if name == "close" && settings::close_if_key() => {}
             Event::UserEvent(Message::Menu(name)) => {

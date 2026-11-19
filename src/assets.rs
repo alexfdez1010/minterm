@@ -20,6 +20,7 @@ pub fn serve(_: wry::WebViewId<'_>, request: Request<Vec<u8>>) -> Response<Cow<'
             "font/woff2",
             include_bytes!("../ui/fonts/martian-mono.woff2"),
         ),
+        "/command.js" => ("text/javascript", include_bytes!("../ui/command.js")),
         "/activity.js" => ("text/javascript", include_bytes!("../ui/activity.js")),
         "/agents.js" => ("text/javascript", include_bytes!("../ui/agents.js")),
         "/agents.css" => ("text/css", include_bytes!("../ui/agents.css")),

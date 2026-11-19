@@ -1,7 +1,7 @@
 use muda::accelerator::{Accelerator, Code, Modifiers};
 use muda::{Menu, MenuItem, PredefinedMenuItem as Native, Submenu};
 
-pub fn install() -> muda::Result<Menu> {
+pub fn install() -> muda::Result<(Menu, MenuItem)> {
     let cmd = Modifiers::META;
     let item = |id, name, modifiers, key| {
         MenuItem::with_id(id, name, true, Some(Accelerator::new(modifiers, key)))
@@ -16,11 +16,18 @@ pub fn install() -> muda::Result<Menu> {
             &item("quit", "Quit Minterm", cmd, Code::KeyQ),
         ],
     )?;
+    let switch_mode = MenuItem::with_id("commandMode", "Switch Terminal / Agent Mode", true, None);
+    switch_mode.set_key_accelerator(crate::preferences::accelerator(
+        &crate::preferences::read().shortcut,
+    ))?;
     let shell = Submenu::with_items(
         "Shell",
         true,
         &[
             &item("new", "New Tab", cmd, Code::KeyT),
+            &MenuItem::with_id("newAgentTab", "New Agent Tab", true, None),
+            &MenuItem::with_id("newTerminalTab", "New Terminal Tab", true, None),
+            &switch_mode,
             &item("close", "Close Tab", cmd, Code::KeyW),
             &item(
                 "previous",
@@ -79,5 +86,5 @@ pub fn install() -> muda::Result<Menu> {
     )?;
     let menu = Menu::with_items(&[&app, &shell, &edit, &view, &window])?;
     menu.init_for_nsapp();
-    Ok(menu)
+    Ok((menu, switch_mode))
 }

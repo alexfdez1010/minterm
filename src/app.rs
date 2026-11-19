@@ -1,8 +1,7 @@
 use crate::{
     agents, assistant,
-    credentials::Provider,
+    assistant::AssistantProvider,
     inspect,
-    jobs::{JobEvent, Jobs},
     sessions::{SessionEvent, Sessions},
     settings,
 };
@@ -26,6 +25,14 @@ pub enum Action {
     Open {
         id: u32,
         from: Option<u32>,
+        cols: u16,
+        rows: u16,
+    },
+    OpenAgent {
+        id: u32,
+        from: u32,
+        agent: String,
+        prompt: String,
         cols: u16,
         rows: u16,
     },
@@ -57,18 +64,9 @@ pub enum Action {
     Context {
         id: u32,
     },
-    StartJob {
-        id: u32,
-        from: Option<u32>,
-        agent: String,
-        prompt: String,
-    },
-    StopJob {
-        id: u32,
-    },
     Summarize {
         id: u32,
-        provider: Option<Provider>,
+        provider: Option<AssistantProvider>,
         excerpt: String,
         revision: u32,
     },
@@ -76,16 +74,16 @@ pub enum Action {
     Agents,
     Settings,
     Ask {
-        provider: Provider,
+        provider: AssistantProvider,
         question: String,
     },
     Drag,
 }
 
 pub enum Message {
+    Preferences,
     Action(Action),
     Shell(SessionEvent),
-    Job(JobEvent),
     Summary(u32, Value),
     Menu(String),
     Context(u32, Value),
@@ -94,11 +92,18 @@ pub enum Message {
     Answer(Value),
 }
 
+struct Companion {
+    id: u32,
+    provider: AssistantProvider,
+    live: bool,
+}
+
 pub struct App {
     view: WebView,
     proxy: EventLoopProxy<Message>,
     sessions: Sessions,
-    jobs: Jobs,
+    // Each logical tab can own a shell and a second PTY running a live agent.
+    companions: HashMap<u32, Companion>,
     summaries: HashSet<u32>,
     start_dir: PathBuf,
     vault_error: Option<String>,
@@ -121,16 +126,12 @@ impl App {
         let sessions = Sessions::new(move |event| {
             let _ = output.send_event(Message::Shell(event));
         });
-        let jobs_proxy = proxy.clone();
-        let jobs = Jobs::new(move |event| {
-            let _ = jobs_proxy.send_event(Message::Job(event));
-        });
         Self {
             view,
-            jobs,
             summaries: HashSet::new(),
             proxy,
             sessions,
+            companions: HashMap::new(),
             start_dir,
             vault_error,
             contexts: HashSet::new(),
@@ -164,6 +165,7 @@ impl App {
                 "ready",
                 json!({
                     "path":short_path(&self.start_dir),
+                    "preferences":ui_preferences(),
                     "vaultError":self.vault_error
                 }),
             ),
@@ -173,6 +175,51 @@ impl App {
                 cols,
                 rows,
             } => self.open(id, from, cols, rows),
+            Action::OpenAgent {
+                id,
+                from,
+                agent,
+                prompt,
+                cols,
+                rows,
+            } => {
+                let result = self
+                    .sessions
+                    .live_cwd(from)
+                    .ok_or_else(|| "Could not resolve the current shell directory.".to_owned())
+                    .and_then(|cwd| {
+                        if self.companions.get(&from).is_some_and(|child| child.live)
+                            || self.last_dirs.contains_key(&id)
+                        {
+                            return Err("This agent session is already open.".into());
+                        }
+                        self.sessions
+                            .open_agent(id, &cwd, &agent, &prompt, cols, rows)?;
+                        Ok(cwd)
+                    });
+                match result {
+                    Ok(cwd) => {
+                        let provider = match agent.as_str() {
+                            "claude" => AssistantProvider::Anthropic,
+                            "codex-ollama" => AssistantProvider::Ollama,
+                            _ => AssistantProvider::OpenAi,
+                        };
+                        if let Some(old) = self.companions.insert(
+                            from,
+                            Companion {
+                                id,
+                                provider,
+                                live: true,
+                            },
+                        ) {
+                            self.last_dirs.remove(&old.id);
+                        }
+                        self.emit("opened", json!({"id":id,"path":short_path(&cwd)}));
+                        self.last_dirs.insert(id, cwd);
+                    }
+                    Err(error) => self.emit("failed", json!({"id":id,"error":error})),
+                }
+            }
             Action::Write { id, data } => self.write(id, data.as_bytes()),
             Action::Binary { id, data } => {
                 if let Ok(bytes) = STANDARD.decode(data) {
@@ -182,32 +229,7 @@ impl App {
             Action::Resize { id, cols, rows } => {
                 let _ = self.sessions.resize(id, cols, rows);
             }
-            Action::Ack { id } if self.jobs.contains(id) => self.jobs.ack_output(id),
             Action::Ack { id } => self.sessions.ack_output(id),
-            Action::StartJob {
-                id,
-                from,
-                agent,
-                prompt,
-            } => {
-                let directory = self.directory_for(from);
-                match self.jobs.start(id, &agent, &directory, &prompt) {
-                    Ok(()) => {
-                        self.emit("opened", json!({"id":id, "path":short_path(&directory)}));
-                        self.last_dirs.insert(id, directory);
-                    }
-                    Err(error) => self.emit("failed", json!({"id":id,"error":error})),
-                }
-            }
-            Action::StopJob { id } if self.jobs.running(id) => {
-                self.jobs.close(id);
-                self.emit(
-                    "jobStatus",
-                    json!({"id":id,"state":"stopped","detail":"Stopped"}),
-                );
-                self.emit("exited", json!({"id":id,"status":"Agent stopped."}));
-            }
-            Action::StopJob { .. } => {}
             Action::Summarize {
                 id,
                 provider,
@@ -217,7 +239,13 @@ impl App {
                 if !self.last_dirs.contains_key(&id) {
                     return;
                 }
-                let source = match (self.jobs.provider(id), provider) {
+                let source = match (
+                    self.companions
+                        .values()
+                        .find(|child| child.id == id)
+                        .map(|child| child.provider),
+                    provider,
+                ) {
                     (Some(provider), None) => assistant::SummarySource::Managed(provider),
                     (None, Some(provider)) => assistant::SummarySource::Reviewed(provider),
                     _ => return,
@@ -236,11 +264,17 @@ impl App {
                 });
             }
             Action::Close { id, force } => {
-                if !force && (self.jobs.running(id) || self.sessions.is_busy(id)) {
+                if !force
+                    && (self.companions.get(&id).is_some_and(|child| child.live)
+                        || self.sessions.is_busy(id))
+                {
                     self.emit("confirm", json!({"id":id}));
                 } else {
+                    if let Some(child) = self.companions.remove(&id) {
+                        self.sessions.close(child.id);
+                        self.last_dirs.remove(&child.id);
+                    }
                     self.sessions.close(id);
-                    self.jobs.close(id);
                     self.last_dirs.remove(&id);
                     self.emit("closed", json!({"id":id}));
                 }
@@ -250,11 +284,10 @@ impl App {
                 if !force
                     && (shells.len() > 1
                         || shells.iter().any(|(id, _)| self.sessions.is_busy(*id))
-                        || self.last_dirs.keys().any(|id| self.jobs.running(*id)))
+                        || self.companions.values().any(|child| child.live))
                 {
                     self.emit("confirm", json!({}));
                 } else {
-                    self.jobs.shutdown();
                     self.sessions.shutdown();
                     self.quitting = true;
                 }
@@ -328,33 +361,26 @@ impl App {
     pub fn receive(&mut self, message: Message) {
         match message {
             Message::Action(action) => self.act(action),
+            Message::Preferences => self.emit("preferences", ui_preferences()),
             Message::Summary(id, value) => {
                 self.summaries.remove(&id);
                 if self.last_dirs.contains_key(&id) {
                     self.emit("summary", value);
                 }
             }
-            Message::Job(JobEvent::Output { id, data }) => {
-                if self.jobs.contains(id) {
-                    self.emit("output", json!({"id":id,"data":data}));
-                }
-            }
-            Message::Job(JobEvent::Status { id, state, detail }) => {
-                if self.jobs.contains(id) {
-                    self.emit("jobStatus", json!({"id":id,"state":state,"detail":detail}));
-                }
-            }
-            Message::Job(JobEvent::Exited { id, status }) => {
-                if self.jobs.contains(id) {
-                    self.emit("exited", json!({"id":id,"status":status}));
-                }
-            }
             Message::Shell(SessionEvent::Output { id, data }) => {
                 self.emit("output", json!({"id":id,"data":data}))
             }
-            Message::Shell(SessionEvent::Exited { id, status }) => {
+            Message::Shell(SessionEvent::Exited {
+                id,
+                status,
+                success,
+            }) => {
+                if let Some(child) = self.companions.values_mut().find(|child| child.id == id) {
+                    child.live = false;
+                }
                 self.sessions.close(id);
-                self.emit("exited", json!({"id":id,"status":status}));
+                self.emit("exited", json!({"id":id,"status":status,"success":success}));
             }
             Message::Menu(name) => self.emit("menu", json!(name)),
             Message::Context(id, value) => {
@@ -375,6 +401,11 @@ impl App {
             }
         }
     }
+}
+
+fn ui_preferences() -> Value {
+    let prefs = crate::preferences::read();
+    json!({"agent":prefs.agent,"shortcut":prefs.shortcut,"newTabMode":prefs.new_tab_mode})
 }
 
 fn short_path(path: &Path) -> String {

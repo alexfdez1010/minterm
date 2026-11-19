@@ -1,6 +1,7 @@
 // Test-only AppKit adapter. Events are confined to this process's hidden window.
 #import <AppKit/AppKit.h>
 #import <WebKit/WebKit.h>
+#import "preferences_driver.m"
 
 @interface MintermTestKeys : NSObject <WKScriptMessageHandlerWithReply>
 @property(nonatomic, weak) NSWindow *window;
@@ -12,6 +13,15 @@
       didReceiveScriptMessage:(WKScriptMessage *)message
                  replyHandler:(void (^)(id, NSString *))reply {
     NSDictionary *key = message.body;
+    if (key[@"preferences"]) { qa_preferences(key[@"preferences"], reply); return; }
+    if (key[@"menuItem"]) {
+        NSMenu *menu = [NSApp.mainMenu itemWithTitle:@"Shell"].submenu;
+        NSInteger index = [menu indexOfItemWithTitle:key[@"menuItem"]];
+        if (!menu || index < 0) { reply(nil, @"Shell menu item unavailable"); return; }
+        [menu performActionForItemAtIndex:index];
+        reply(@YES, nil);
+        return;
+    }
     NSUInteger modifiers = [key[@"modifiers"] unsignedIntegerValue];
     [self.window makeFirstResponder:self.view];
     NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown
