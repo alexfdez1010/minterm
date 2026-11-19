@@ -54,7 +54,7 @@ On upgrade, the previous default ⇧⌘K changes to ⌘K. Other saved shortcuts 
 
 Press **⌘K** in a shell. A robot replaces the prompt chevron. Type your task there and press Return to start the selected CLI in the shell’s current directory. Shift-Return inserts a newline. Press Return at an empty prompt to open the CLI without an initial task. Press ⌘K again to move between the shell and the running agent. Each keeps its own input, processes and scrollback.
 
-**Agents → +** opens a new tab for a task. The inspector reads activity locally and marks recognizable confirmation prompts as **Input requested**. Select the agent to answer in its terminal.
+**Agents → +** opens the selected agent in a new tab. Leave **Task** empty to start an interactive session, or enter a task to send when it starts. The inspector reads activity locally and marks recognizable confirmation prompts as **Input requested**. Select the agent to answer in its terminal.
 
 ### Agent commands
 

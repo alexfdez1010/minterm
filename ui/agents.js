@@ -18,7 +18,7 @@ export function setAgentChoices(commands, preferred, error) {
   field.replaceChildren(...choices.map(([value, label]) => new Option(label, value)));
   field.value = selected;
   field.setCustomValidity(error || "");
-  $("agent-submit").disabled = !field.value || !$("agent-prompt").value.trim();
+  $("agent-submit").disabled = !field.value;
 }
 
 export function initAgents(select, label, launch, preferredAgent, refreshPreferences) {
@@ -35,7 +35,7 @@ export function initAgents(select, label, launch, preferredAgent, refreshPrefere
     opening = { ready: refreshPreferences() };
     form.reset();
     form.elements.agent.value = preferredAgent();
-    submit.disabled = true;
+    submit.disabled = !form.elements.agent.value;
     dialog.showModal();
     task.focus();
   };
@@ -56,10 +56,7 @@ export function initAgents(select, label, launch, preferredAgent, refreshPrefere
   };
   form.elements.agent.onchange = () => {
     choiceEdited = true;
-    task.oninput();
-  };
-  task.oninput = () => {
-    submit.disabled = !task.value.trim() || !form.elements.agent.value;
+    submit.disabled = !form.elements.agent.value;
   };
   dialog.onkeydown = (event) => {
     if (!event.isComposing && event.metaKey && event.key === "Enter") {
@@ -74,7 +71,6 @@ export function initAgents(select, label, launch, preferredAgent, refreshPrefere
     await submitted.ready;
     if (!dialog.open || opening !== submitted || !form.reportValidity()) return;
     const prompt = task.value.trim();
-    if (!prompt) return;
     dialog.close();
     launch({ agent: form.elements.agent.value, prompt });
   };

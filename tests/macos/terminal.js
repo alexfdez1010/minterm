@@ -272,6 +272,18 @@ try {
   await key(40, 'k', command);
   await expect('Seventh shell offers an empty agent prompt', () =>
     document.activeElement === $('#command-input') && $('#command-input').value === '');
+  await key(36, '\r');
+  await expect('Return on an empty robot prompt starts the default agent in place', () =>
+    tabs().length === beforeLaunch && surface()?.dataset.kind === 'agent' && surface().dataset.state === 'live');
+  const blankAgent = activeTerminal();
+  await expect('Default agent starts without a prompt argument', () =>
+    rows(blankAgent).includes('Started codex without a task'));
+  await enter('/exit');
+  await expect('Default agent exits', () => surface().dataset.state === 'ended');
+  await key(40, 'k', command);
+  await expect('Source shell returns after default agent exit', () => surface().dataset.kind === 'shell');
+  await key(40, 'k', command);
+  await expect('Robot prompt is ready for the bare alias', () => document.activeElement === $('#command-input'));
   await enter('ocq');
   await expect('Typing the bare profile name selects it over the default Codex', () =>
     surface()?.dataset.kind === 'agent' && surface().dataset.state === 'live' && selected().textContent.includes('ocq'));
@@ -320,6 +332,8 @@ try {
   await key(13, 'w', command);
   await expect('Closing the custom command returns to its source', () => selected() === sourceTab);
   for (const [name, prompt] of [
+    ['claude', ''],
+    ['opencode', ' \n  '],
     ['claude', 'Read the fixture'],
     ['opencode', 'Review the fixture\nKeep `pwd` literal.'],
   ]) {
@@ -327,12 +341,20 @@ try {
     await expect(name + ' launcher opened', () => $('#agent-launch').open);
     agentChoice.value = name;
     agentChoice.dispatchEvent(new Event('change', {bubbles: true}));
-    task.value = prompt;
-    task.dispatchEvent(new Event('input', {bubbles:true}));
+    if (prompt) {
+      task.value = prompt;
+      task.dispatchEvent(new Event('input', {bubbles:true}));
+    }
+    const title = prompt.trim() ? prompt.split('\n')[0] : agentChoice.selectedOptions[0].label;
+    await expect(name + ' can start with the current task', () => !$('#agent-submit').disabled);
     $('#agent-submit').click();
     await expect(name + ' launches in a live PTY', () => tabs().length === beforeLaunch + 1 &&
-      selected().textContent.includes(prompt.split('\n')[0]) && surface().dataset.kind === 'agent' && surface().dataset.state === 'live');
+      selected().textContent.includes(title) && selected().title.includes('/command-target') &&
+      surface().dataset.kind === 'agent' && surface().dataset.state === 'live');
     const cli = activeTerminal();
+    if (!prompt.trim()) {
+      await expect(name + ' starts without a prompt argument', () => rows(cli).includes('Started ' + name + ' without a task'));
+    }
     await enter('follow up');
     await expect(name + ' handles subsequent input', () => rows(cli).some(line => line.includes('Fixture reply: follow up')));
     await enter('/exit');

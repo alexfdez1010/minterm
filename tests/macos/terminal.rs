@@ -61,6 +61,7 @@ set -eu
 [ -t 0 ] && [ -t 1 ] || exit 65
 if [ "$#" -eq 0 ]; then
     record=blank
+    printf 'Started %s without a task\n' "${0##*/}"
 elif [ "${0##*/}" = opencode ] && [ "$1" = --model ]; then
     printf 'Model: %s\n' "$2"
     if [ "$#" -eq 2 ]; then record=custom-empty; else record=custom-task; fi
@@ -313,6 +314,12 @@ int main(void) {
         );
     }
     assert!(fs::read(nested.join("blank-argv")).unwrap().is_empty());
+    assert_eq!(
+        fs::read_to_string(command_dir.join("blank-cwd"))
+            .unwrap()
+            .trim_end(),
+        command_dir.to_str().unwrap()
+    );
     assert!(!command_dir.join("shell-must-not-run").exists());
     assert_eq!(
         fs::read_to_string(command_dir.join("shell-restored")).unwrap(),
