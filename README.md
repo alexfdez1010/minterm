@@ -59,6 +59,8 @@ Press **⌘K** in a shell. A robot replaces the prompt chevron. Type your task t
 
 ### Agent commands
 
+To assign or change a shortcut, open a command in **Settings → Commands**. Click the button beside **Shortcut**, press Control and a letter together, then choose **Save**. From the **Shell command** field, Tab to the recorder and press Space to start. Escape cancels recording. To remove a binding, click × or press Delete with the recorder focused, then save.
+
 At the robot prompt, type a saved name and press Return to start it. To pass an initial task, type the name followed by the task, such as `ocq Review the current diff`. Other text goes to your default agent. A running agent keeps its own keyboard controls.
 
 | Starter command | Launches | Shortcut at the robot prompt |
