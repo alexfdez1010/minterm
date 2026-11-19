@@ -1,0 +1,20 @@
+# Set a default to use it for an empty prompt or a task without a command name.
+# default = "sol-light"
+
+[[commands]]
+name = "ocq"
+agent = "opencode"
+# The shell alias wraps ollama launch. Forward agent arguments after --.
+command = "ocq --"
+
+[[commands]]
+name = "sol-light"
+agent = "codex"
+command = """codex -m gpt-6.2-sol -c 'model_reasoning_effort="low"'"""
+shortcut = "Enter+L"
+
+[[commands]]
+name = "sol-ultra"
+agent = "codex"
+command = """codex -m gpt-6.2-sol -c 'model_reasoning_effort="ultra"'"""
+shortcut = "Enter+U"

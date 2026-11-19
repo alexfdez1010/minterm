@@ -29,6 +29,8 @@ async function expect(description, condition) {
 const command = 1 << 20, shift = 1 << 17;
 const key = (code, text, modifiers = 0, plain = text) =>
   window.webkit.messageHandlers.testKey.postMessage({code, text, modifiers, plain});
+const keyPhase = (phase, code, text) =>
+  window.webkit.messageHandlers.testKey.postMessage({phase, code, text});
 async function type(text) {
   for (const letter of text) await key(0, letter);
 }
@@ -137,8 +139,9 @@ try {
   const surface = () => $('.terminal-page.selected');
   $('#start-agent').click();
   await expect('Agent launcher opened', () => $('#agent-launch').open);
-  await expect('Launcher lists the three supported CLIs', () =>
-    [...$('#agent-launch-form').elements.agent].map(input => input.value).sort().join(',') === 'claude,codex,opencode');
+  const agentChoice = $('#agent-launch-form').elements.agent;
+  await expect('Launcher lists built-in agents and the saved shell command', () =>
+    [...agentChoice.options].map(option => option.value).sort().join(',') === 'claude,codex,ocq,opencode,sol-light,sol-ultra');
   const task = $('#agent-prompt');
   task.value = 'Review fixture changes\nDescribe `git status` literally.';
   task.dispatchEvent(new Event('input', {bubbles:true}));
@@ -213,11 +216,13 @@ try {
   const secondPrompt = promptPosition();
   if (secondPrompt.top <= firstPrompt.top + cellHeight) throw new Error('Expected a different input row');
   await key(26, '7', command);
+  await expect('Seventh tab selected before opening its draft', () => selected() === tabs()[6]);
   $('#command-toggle').click();
   await expect('A different tab has its own command draft', () =>
     !$('#command-form').hidden && $('#command-input').value === '');
   await key(53, '\x1b');
   await key(28, '8', command);
+  await expect('Source tab selected before restoring its draft', () => selected() === sourceTab);
   $('#command-toggle').click();
   await expect('The source tab restores its command draft', () => $('#command-input').value === modeTask);
   await expect('The restored draft follows the new cursor position', () => editorAtPrompt(secondPrompt));
@@ -242,7 +247,8 @@ try {
   await expect('Shell input is restored from agent mode', () =>
     selected() === sourceTab && tabs().length === beforeLaunch && surface()?.dataset.kind === 'shell' &&
     document.activeElement === $('.terminal-page.selected textarea.xterm-helper-textarea'));
-  await enter('echo restored > shell-restored');
+  await enter('echo restored | tee shell-restored');
+  await expect('The shell runs the command after switching back', () => rows(sourceTerminal).includes('restored'));
   $('#command-toggle').click();
   await expect('Switching back restores the existing agent terminal', () =>
     surface()?.dataset.kind === 'agent' && activeTerminal() === commandTerminal);
@@ -261,15 +267,66 @@ try {
   await expect('The direct agent tab observes CLI exit', () => surface().dataset.state === 'ended');
   await key(13, 'w', command);
   await expect('Only the direct agent tab closes', () => tabs().length === beforeLaunch);
+  await key(26, '7', command);
+  await expect('Seventh tab selected for the bare alias', () => selected() === tabs()[6]);
+  await key(40, 'k', command);
+  await expect('Seventh shell offers an empty agent prompt', () =>
+    document.activeElement === $('#command-input') && $('#command-input').value === '');
+  await enter('ocq');
+  await expect('Typing the bare profile name selects it over the default Codex', () =>
+    surface()?.dataset.kind === 'agent' && surface().dataset.state === 'live' && selected().textContent.includes('ocq'));
+  const aliasTerminal = activeTerminal();
+  await expect('Shell alias supplied its model to the interactive CLI', () =>
+    rows(aliasTerminal).includes('Model: fixture/qwen'));
+  await enter('/exit');
+  await expect('Bare alias ends its interactive session', () => surface().dataset.state === 'ended');
   await key(28, '8', command);
   await expect('Source shell selected for the next agents', () => selected() === sourceTab && surface().dataset.kind === 'shell');
+  await key(17, 't', command);
+  await expect('New terminal tab inherits the command target directory', () =>
+    tabs().length === beforeLaunch + 1 && surface()?.dataset.state === 'live' && selected().title.includes('/command-target'));
+  await key(40, 'k', command);
+  await expect('Agent prompt is ready for a named task', () => document.activeElement === $('#command-input'));
+  await type('ocq --help review');
+  await key(36, '\r', shift);
+  await enter('Keep $(touch alias-command-ran) literal.');
+  await expect('Named task starts an agent in the same tab', () =>
+    surface()?.dataset.kind === 'agent' && surface().dataset.state === 'live' && tabs().length === beforeLaunch + 1);
+  const namedTask = activeTerminal();
+  await expect('Named task uses the configured model', () => rows(namedTask).includes('Model: fixture/qwen'));
+  await enter('continue');
+  await expect('Custom command accepts interactive follow-up input', () => rows(namedTask).includes('Fixture reply: continue'));
+  await enter('/exit');
+  await expect('Custom command exits', () => surface().dataset.state === 'ended');
+  for (const [letter, code] of [['l', 37], ['u', 32]]) {
+    await key(40, 'k', command);
+    await expect('Shell is ready after agent exit', () => surface()?.dataset.kind === 'shell');
+    await key(40, 'k', command);
+    await expect('Agent prompt is ready for a launch shortcut', () => document.activeElement === $('#command-input'));
+    await type('Test the change');
+    await key(36, '\r', shift);
+    await type('Review this diff.');
+    await keyPhase('down', 36, '\r');
+    await keyPhase('down', code, letter);
+    await keyPhase('up', code, letter);
+    await keyPhase('up', 36, '\r');
+    await expect('Enter+' + letter + ' launches a live terminal', () =>
+      surface()?.dataset.kind === 'agent' && surface().dataset.state === 'live');
+    const cli = activeTerminal();
+    await expect('The shortcut chose the Sol model', () => rows(cli).includes('Model: gpt-6.2-sol'));
+    await enter('/exit');
+    await expect('The shortcut session exits', () => surface().dataset.state === 'ended');
+  }
+  await key(13, 'w', command);
+  await expect('Closing the custom command returns to its source', () => selected() === sourceTab);
   for (const [name, prompt] of [
     ['claude', 'Read the fixture'],
     ['opencode', 'Review the fixture\nKeep `pwd` literal.'],
   ]) {
     $('#start-agent').click();
     await expect(name + ' launcher opened', () => $('#agent-launch').open);
-    $('#agent-launch input[value="' + name + '"]').click();
+    agentChoice.value = name;
+    agentChoice.dispatchEvent(new Event('change', {bubbles: true}));
     task.value = prompt;
     task.dispatchEvent(new Event('input', {bubbles:true}));
     $('#agent-submit').click();
@@ -284,7 +341,26 @@ try {
     await expect(name + ' closes independently', () => selected() === sourceTab && tabs().length === beforeLaunch);
   }
   await verifyPreferences();
+  await key(17, 't', command);
+  await expect('Terminal is ready to edit its external profile file', () =>
+    tabs().length === beforeLaunch + 1 && surface()?.dataset.kind === 'shell' && surface().dataset.state === 'live');
+  const external = activeTerminal();
+  await enter('mkdir -p "$HOME/external" && cd "$HOME/external" && cat "$HOME/extra-profile.toml" >> "$XDG_CONFIG_HOME/minterm/agents.toml" && echo updated');
+  await expect('Shell finished changing the TOML on disk', () => rows(external).includes('updated'));
+  await key(40, 'k', command);
+  await expect('Agent prompt opens after editing the configuration', () => document.activeElement === $('#command-input'));
+  await enter('freshq review external edit');
+  await expect('Newly written profile starts without reopening Settings or the window', () =>
+    surface()?.dataset.kind === 'agent' && surface().dataset.state === 'live');
+  const fresh = activeTerminal();
+  await expect('New profile supplies its own model', () => rows(fresh).includes('Model: fixture/external'));
+  await enter('/exit');
+  await expect('External profile exits', () => surface().dataset.state === 'ended');
   return 'passed';
 } catch (err) {
-  return String(err) + '\n' + err.stack;
+  return String(err) + '\n' + JSON.stringify({
+    tab: selected()?.textContent, focus: document.activeElement.id || document.activeElement.className,
+    surface: $('.terminal-page.selected')?.dataset, draft: $('#command-input').value,
+    reason: $('#exit-note')?.textContent,
+  }) + '\n' + err.stack;
 }

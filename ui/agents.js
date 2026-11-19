@@ -1,4 +1,4 @@
-import { $, element, icon } from "./shared.js";
+import { $, agentNames, element, icon } from "./shared.js";
 
 const states = {
   running: "Running",
@@ -9,9 +9,19 @@ const states = {
   stopped: "Stopped",
 };
 const rows = new Map();
-let selectSession, tabLabel;
+let selectSession, tabLabel, choiceEdited;
 
-export function initAgents(select, label, launch, preferredAgent) {
+export function setAgentChoices(commands, preferred, error) {
+  const field = $("agent-choice");
+  const selected = $("agent-launch").open && choiceEdited ? field.value : preferred;
+  const choices = [...Object.entries(agentNames), ...commands.map(({ name }) => [name, name])];
+  field.replaceChildren(...choices.map(([value, label]) => new Option(label, value)));
+  field.value = selected;
+  field.setCustomValidity(error || "");
+  $("agent-submit").disabled = !field.value || !$("agent-prompt").value.trim();
+}
+
+export function initAgents(select, label, launch, preferredAgent, refreshPreferences) {
   selectSession = select;
   tabLabel = label;
   const dialog = $("agent-launch");
@@ -19,7 +29,10 @@ export function initAgents(select, label, launch, preferredAgent) {
   const task = $("agent-prompt");
   const submit = $("agent-submit");
   const opener = $("start-agent");
+  let opening;
   opener.onclick = () => {
+    choiceEdited = false;
+    opening = { ready: refreshPreferences() };
     form.reset();
     form.elements.agent.value = preferredAgent();
     submit.disabled = true;
@@ -36,10 +49,17 @@ export function initAgents(select, label, launch, preferredAgent) {
     cancel();
   };
   dialog.onclose = () => {
-    if (!dialog.open) task.value = "";
+    if (!dialog.open) {
+      opening = null;
+      task.value = "";
+    }
+  };
+  form.elements.agent.onchange = () => {
+    choiceEdited = true;
+    task.oninput();
   };
   task.oninput = () => {
-    submit.disabled = !task.value.trim();
+    submit.disabled = !task.value.trim() || !form.elements.agent.value;
   };
   dialog.onkeydown = (event) => {
     if (!event.isComposing && event.metaKey && event.key === "Enter") {
@@ -47,10 +67,14 @@ export function initAgents(select, label, launch, preferredAgent) {
       if (!submit.disabled) form.requestSubmit(submit);
     }
   };
-  form.onsubmit = (event) => {
+  form.onsubmit = async (event) => {
     event.preventDefault();
+    const submitted = opening;
+    if (!submitted) return;
+    await submitted.ready;
+    if (!dialog.open || opening !== submitted || !form.reportValidity()) return;
     const prompt = task.value.trim();
-    if (!dialog.open || !prompt) return;
+    if (!prompt) return;
     dialog.close();
     launch({ agent: form.elements.agent.value, prompt });
   };

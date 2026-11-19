@@ -136,20 +136,10 @@
     <dialog id="agent-launch" class="agent-dialog" aria-labelledby="agent-launch-title">
       <form id="agent-launch-form">
         <h2 id="agent-launch-title">Start agent</h2>
-        <fieldset class="agent-choices">
-          <legend>Agent</legend>
-          <div class="agent-options">
-            <label
-              ><input type="radio" name="agent" value="codex" checked /><span>Codex</span></label
-            >
-            <label
-              ><input type="radio" name="agent" value="claude" /><span>Claude Code</span></label
-            >
-            <label
-              ><input type="radio" name="agent" value="opencode" /><span>OpenCode</span></label
-            >
-          </div>
-        </fieldset>
+        <div>
+          <label for="agent-choice">Agent</label>
+          <select id="agent-choice" name="agent" required></select>
+        </div>
         <div>
           <label for="agent-prompt">Task</label>
           <textarea

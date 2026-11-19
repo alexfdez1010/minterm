@@ -19,6 +19,7 @@ use wry::WebView;
 #[serde(tag = "action", rename_all = "camelCase")]
 pub enum Action {
     Ready,
+    AgentPreferences,
     Open {
         id: u32,
         from: Option<u32>,
@@ -133,6 +134,7 @@ impl App {
 
     pub fn act(&mut self, action: Action) {
         match action {
+            Action::AgentPreferences => self.emit("preferences", ui_preferences()),
             Action::Ready => self.emit(
                 "ready",
                 json!({
@@ -313,7 +315,18 @@ impl App {
 
 fn ui_preferences() -> Value {
     let prefs = crate::preferences::read();
-    json!({"agent":prefs.agent,"shortcut":prefs.shortcut,"newTabMode":prefs.new_tab_mode})
+    let commands: Vec<_> = prefs
+        .agent_commands
+        .iter()
+        .map(|c| json!({"name": c.name, "agent": c.agent, "shortcut": c.shortcut}))
+        .collect();
+    json!({
+        "agent": prefs.agent,
+        "agentCommands": commands,
+        "agentCommandsError": prefs.agent_commands_error,
+        "shortcut": prefs.shortcut,
+        "newTabMode": prefs.new_tab_mode
+    })
 }
 
 fn short_path(path: &Path) -> String {

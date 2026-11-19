@@ -2,9 +2,12 @@ fn main() {
     println!("cargo:rerun-if-changed=macos/settings.m");
     println!("cargo:rerun-if-changed=macos/preferences.h");
     println!("cargo:rerun-if-changed=macos/preferences.m");
+    println!("cargo:rerun-if-changed=macos/agent_commands.h");
+    println!("cargo:rerun-if-changed=macos/agent_commands.m");
     cc::Build::new()
         .file("macos/settings.m")
         .file("macos/preferences.m")
+        .file("macos/agent_commands.m")
         .flag("-fobjc-arc")
         .flag("-fblocks")
         .compile("minterm_settings");

@@ -7,6 +7,8 @@ use tao::event_loop::EventLoopProxy;
 
 unsafe extern "C" {
     fn minterm_settings_show(prefs: *const c_char, change: Change);
+    fn minterm_settings_reload(prefs: *const c_char);
+    fn minterm_reveal_agent_commands(path: *const c_char);
     fn minterm_settings_close_if_key() -> bool;
 }
 
@@ -26,12 +28,29 @@ unsafe extern "C" fn change(
     error: *mut c_char,
     capacity: usize,
 ) -> bool {
+    if field.is_null() || value.is_null() {
+        write_feedback("Missing setting or value.", error, capacity);
+        return false;
+    }
     let field = unsafe { CStr::from_ptr(field) }.to_str();
     let value = unsafe { CStr::from_ptr(value) }.to_str();
     let result = field
         .and_then(|field| value.map(|value| (field, value)))
         .map_err(|e| e.to_string())
-        .and_then(|(field, value)| preferences::update(field, value));
+        .and_then(|(field, value)| {
+            if field == "revealAgentCommands" {
+                let path = crate::agent_config::ensure_file()?;
+                let path =
+                    CString::new(path.as_os_str().as_encoded_bytes()).map_err(|e| e.to_string())?;
+                unsafe { minterm_reveal_agent_commands(path.as_ptr()) };
+            } else {
+                preferences::update(field, value)?;
+                if field == "agentCommand" {
+                    minterm_refresh_settings();
+                }
+            }
+            Ok(())
+        });
     if let Err(message) = result {
         write_feedback(&message, error, capacity);
         return false;
@@ -46,10 +65,18 @@ unsafe extern "C" fn change(
 
 /// Called on the AppKit main thread by the application's event loop.
 pub fn show() {
-    let json =
-        CString::new(serde_json::to_string(&preferences::read()).expect("serializable settings"))
-            .expect("JSON escapes nulls");
-    unsafe { minterm_settings_show(json.as_ptr(), change) };
+    unsafe { minterm_settings_show(snapshot().as_ptr(), change) };
+}
+
+fn snapshot() -> CString {
+    CString::new(serde_json::to_string(&preferences::read()).expect("serializable settings"))
+        .expect("JSON escapes nulls")
+}
+
+// AppKit calls this on the main thread when Settings regains focus after an external edit.
+#[unsafe(no_mangle)]
+pub extern "C" fn minterm_refresh_settings() {
+    unsafe { minterm_settings_reload(snapshot().as_ptr()) };
 }
 
 pub fn close_if_key() -> bool {

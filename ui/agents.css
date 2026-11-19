@@ -71,53 +71,18 @@
   min-height: 58px;
   max-height: 26vh;
 }
-.agent-choices {
-  min-width: 0;
-  padding: 0;
-  margin: 0;
-  border: 0;
-}
-.agent-choices legend {
-  padding: 0;
-  margin-bottom: var(--space-2);
-  font-size: var(--type-label);
-  font-weight: 600;
-}
-.agent-options {
-  display: flex;
-  gap: 2px;
-  padding: 3px;
-  width: fit-content;
-  background: var(--surface-input);
+#agent-choice {
+  width: 100%;
+  min-height: var(--control-size);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--field-border);
   border-radius: var(--radius-control);
-}
-.agent-options label {
-  position: relative;
-  margin: 0;
-  cursor: pointer;
-}
-.agent-options input {
-  position: absolute;
-  inset: 0;
-  opacity: 0;
-  margin: 0;
-  cursor: pointer;
-}
-.agent-options span {
-  display: inline-flex;
-  align-items: center;
-  padding: 0 var(--space-3);
-  min-height: 27px;
-  border-radius: 4px;
-  color: var(--muted);
-}
-.agent-options input:checked + span {
-  background: var(--surface-selected);
+  background-color: var(--surface-input);
   color: var(--fg);
 }
-.agent-options input:focus-visible + span {
+#agent-choice:focus-visible {
   outline: 2px solid var(--mint);
-  outline-offset: 1px;
+  outline-offset: 2px;
 }
 .agent-dialog .primary {
   display: inline-flex;

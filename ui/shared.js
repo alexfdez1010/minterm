@@ -4,6 +4,7 @@ export const agentNames = {
   claude: "Claude Code",
   opencode: "OpenCode",
 };
+export const agentLabel = (id) => Object.hasOwn(agentNames, id) ? agentNames[id] : id;
 export const send = (action, values = {}) =>
   window.ipc.postMessage(JSON.stringify({ action, ...values }));
 const paths = {

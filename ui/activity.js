@@ -1,4 +1,4 @@
-import { agentNames } from "./shared.js";
+import { agentLabel } from "./shared.js";
 
 const ACTIVITY_SAMPLE_MS = 350;
 
@@ -98,7 +98,7 @@ export class Activity {
   start(id, { agent, prompt }) {
     this.jobs.set(id, {
       id,
-      name: agentNames[agent],
+      name: agentLabel(agent),
       title: prompt.trim().split(/\s+/).join(" ").slice(0, 80),
       managed: true,
       foreground: true,

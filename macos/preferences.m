@@ -1,13 +1,22 @@
 #import "preferences.h"
+#import "agent_commands.h"
 
-static NSView *form(NSArray<NSArray<NSView *> *> *rows) {
-    NSView *view = [NSView new];
+NSGridView *MTFormGrid(NSArray<NSArray<NSView *> *> *rows) {
     NSGridView *grid = [NSGridView gridViewWithViews:rows];
+    CGFloat labelWidth = 0;
+    for (NSArray<NSView *> *row in rows) labelWidth = MAX(labelWidth, row.firstObject.intrinsicContentSize.width);
+    [grid columnAtIndex:0].width = ceil(labelWidth);
     [grid columnAtIndex:0].xPlacement = NSGridCellPlacementTrailing;
     [grid columnAtIndex:1].xPlacement = NSGridCellPlacementFill;
     grid.rowAlignment = NSGridRowAlignmentFirstBaseline;
     grid.rowSpacing = 12;
     grid.columnSpacing = 12;
+    return grid;
+}
+
+static NSView *form(NSArray<NSArray<NSView *> *> *rows) {
+    NSView *view = [NSView new];
+    NSGridView *grid = MTFormGrid(rows);
     grid.translatesAutoresizingMaskIntoConstraints = NO;
     [view addSubview:grid];
     [NSLayoutConstraint activateConstraints:@[
@@ -47,6 +56,9 @@ static BOOL shortcutTaken(NSMenu *menu, NSString *letter, NSEventModifierFlags f
     id _monitor;
     NSURLSessionDataTask *_modelRequest;
     NSUInteger _catalogGeneration;
+    MTAgentCommands *_commands;
+    NSGridRow *_executableRow;
+    NSString *_displayedExecutableField;
 }
 - (instancetype)initWithChange:(MTChangePreference)change {
     if (!(self = [super init])) return nil;
@@ -57,7 +69,6 @@ static BOOL shortcutTaken(NSMenu *menu, NSString *letter, NSEventModifierFlags f
     _mode.action = @selector(modeChanged:);
     _mode.accessibilityLabel = @"New tabs";
     _agent = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-    [_agent addItemsWithTitles:@[@"Codex", @"Claude Code", @"OpenCode"]];
     _agent.target = self;
     _agent.action = @selector(agentChanged:);
     _agent.accessibilityLabel = @"Agent command";
@@ -75,6 +86,25 @@ static BOOL shortcutTaken(NSMenu *menu, NSString *letter, NSEventModifierFlags f
         @[[NSTextField labelWithString:@"Executable"], horizontal(@[_executable,choose])],
         @[[NSTextField labelWithString:@"Switch mode"], _shortcut],
     ]);
+
+    _executableRow = [(NSGridView *)_generalView.subviews.firstObject rowAtIndex:2];
+    __weak MTPreferencesPane *weakSelf = self;
+    _commands = [[MTAgentCommands alloc] initWithSave:^NSString *(NSDictionary *edit) {
+        MTPreferencesPane *pane = weakSelf;
+        NSData *data = [NSJSONSerialization dataWithJSONObject:edit options:0 error:NULL];
+        NSString *json = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+        char error[1024] = {0};
+        if (!json || !pane || !pane->_change("agentCommand", json.UTF8String, error, sizeof(error))) {
+            return error[0] ? @(error) : @"Could not save the command.";
+        }
+        return nil;
+    } reveal:^NSString * {
+        MTPreferencesPane *pane = weakSelf;
+        char error[1024] = {0};
+        if (!pane || !pane->_change("revealAgentCommands", "", error, sizeof(error))) return @(error);
+        return nil;
+    }];
+    _commandsView = _commands.view;
 
     _backend = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     [_backend addItemsWithTitles:@[@"Codex default", @"Ollama"]];
@@ -103,24 +133,38 @@ static BOOL shortcutTaken(NSMenu *menu, NSString *letter, NSEventModifierFlags f
 }
 
 - (NSString *)executableField {
-    return @[@"codexPath", @"claudePath", @"opencodePath"][_agent.indexOfSelectedItem];
+    NSString *agent = _agent.selectedItem.representedObject;
+    return @{@"codex": @"codexPath", @"claude": @"claudePath", @"opencode": @"opencodePath"}[agent];
 }
 
 - (void)reload:(NSDictionary *)values {
     [self stopRecording];
     _values = [values mutableCopy];
     [_mode selectItemAtIndex:[values[@"newTabMode"] isEqual:@"agent"] ? 1 : 0];
-    NSInteger index = [@[@"codex",@"claude",@"opencode"] indexOfObject:values[@"agent"]];
-    [_agent selectItemAtIndex:index == NSNotFound ? 0 : index];
+    [self reloadCommands:values];
     _shortcut.title = values[@"shortcut"];
-    _executable.stringValue = values[self.executableField] ?: @"";
     _host.stringValue = values[@"ollamaHost"];
     _model.stringValue = values[@"ollamaModel"] ?: @"";
     [_backend selectItemAtIndex:[values[@"codexOllama"] boolValue] ? 1 : 0];
     [self updateBackendControls];
 }
 
+- (void)reloadCommands:(NSDictionary *)values {
+    _values[@"agent"] = values[@"agent"];
+    [_agent removeAllItems];
+    MTAddBuiltInAgents(_agent);
+    for (NSDictionary *entry in values[@"agentCommands"]) {
+        [_agent addItemWithTitle:entry[@"name"]];
+        _agent.lastItem.representedObject = entry[@"name"];
+    }
+    NSInteger index = [_agent indexOfItemWithRepresentedObject:values[@"agent"]];
+    [_agent selectItemAtIndex:index < 0 ? 0 : index];
+    [_commands reload:values[@"agentCommands"] error:[values[@"agentCommandsError"] isKindOfClass:NSString.class] ? values[@"agentCommandsError"] : nil];
+    [self updateExecutable];
+}
+
 - (BOOL)save:(NSString *)value field:(NSString *)field {
+    if (!field || !value) return NO;
     if (![field isEqual:@"shortcut"] && [_values[field] isEqual:value]) return YES;
     char error[1024] = {0};
     if (!_change(field.UTF8String, value.UTF8String, error, sizeof(error))) {
@@ -137,9 +181,20 @@ static BOOL shortcutTaken(NSMenu *menu, NSString *letter, NSEventModifierFlags f
 - (void)modeChanged:(id)sender {
     [self save:_mode.indexOfSelectedItem == 1 ? @"agent" : @"terminal" field:@"newTabMode"];
 }
+- (void)updateExecutable {
+    NSString *field = self.executableField;
+    if (_executable.currentEditor && ![_displayedExecutableField isEqual:field]) {
+        [_generalView.window makeFirstResponder:_agent];
+    }
+    _executableRow.hidden = field == nil;
+    _displayedExecutableField = [field copy];
+    if (field && !_executable.currentEditor) _executable.stringValue = _values[field] ?: @"";
+}
 - (void)agentChanged:(id)sender {
-    [self save:@[@"codex",@"claude",@"opencode"][_agent.indexOfSelectedItem] field:@"agent"];
-    _executable.stringValue = _values[self.executableField] ?: @"";
+    if (![self save:_agent.selectedItem.representedObject field:@"agent"]) {
+        [_agent selectItemAtIndex:[_agent indexOfItemWithRepresentedObject:_values[@"agent"]]];
+    }
+    [self updateExecutable];
 }
 - (void)updateBackendControls {
     BOOL enabled = _backend.indexOfSelectedItem == 1;
@@ -172,7 +227,8 @@ static BOOL shortcutTaken(NSMenu *menu, NSString *letter, NSEventModifierFlags f
 }
 - (void)controlTextDidEndEditing:(NSNotification *)note {
     NSTextField *field = note.object;
-    NSString *key = field == _host ? @"ollamaHost" : field == _model ? @"ollamaModel" : self.executableField;
+    NSString *key = field == _host ? @"ollamaHost" : field == _model ? @"ollamaModel" : _displayedExecutableField;
+    if (!key) return;
     if (field == _host) {
         NSString *host = [field.stringValue stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
         while ([host hasSuffix:@"/"]) host = [host substringToIndex:host.length - 1];
@@ -219,6 +275,8 @@ static BOOL shortcutTaken(NSMenu *menu, NSString *letter, NSEventModifierFlags f
     }];
     [_modelRequest resume];
 }
+
+- (BOOL)cancelCommandEditor { return [_commands cancelEditor]; }
 
 - (void)stopRecording {
     if (_monitor) [NSEvent removeMonitor:_monitor];

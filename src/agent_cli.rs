@@ -8,7 +8,36 @@ use std::{
 
 pub(crate) struct AgentCli {
     pub program: PathBuf,
+    pub args: Vec<OsString>,
     pub path: Option<OsString>,
+}
+
+impl AgentCli {
+    /// Run the command saved in Settings after the user's startup files define
+    /// aliases and functions. The directory and all CLI arguments stay in argv.
+    pub fn shell_command(shell: &Path, command: &str, cwd: &Path) -> Self {
+        let args = if shell.file_name().is_some_and(|name| name == "fish") {
+            vec![
+                "-lic".into(),
+                format!("builtin cd -- \"$argv[1]\"; or exit 1\n{command} $argv[2..-1]").into(),
+                "--".into(),
+                cwd.into(),
+            ]
+        } else {
+            vec![
+                "-lic".into(),
+                format!("\\builtin cd -- \"$1\" || exit 1\n\\builtin shift\n{command} \"$@\"")
+                    .into(),
+                "minterm-agent".into(), // $0 for shell -c
+                cwd.into(),
+            ]
+        };
+        Self {
+            program: shell.into(),
+            args,
+            path: env::join_paths(binary_paths()).ok(),
+        }
+    }
 }
 
 pub(crate) fn resolve(agent: &str, configured: Option<&Path>) -> Result<AgentCli, String> {
@@ -39,6 +68,7 @@ pub(crate) fn resolve(agent: &str, configured: Option<&Path>) -> Result<AgentCli
     };
     Ok(AgentCli {
         program,
+        args: Vec::new(),
         path: env::join_paths(dirs).ok(),
     })
 }

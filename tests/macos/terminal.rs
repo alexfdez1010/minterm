@@ -38,6 +38,20 @@ fn init_repository(dir: &Path, branch: &str) {
 fn install_agent_fixtures(home: &Path) -> std::path::PathBuf {
     let bin = home.join(".local/bin");
     fs::create_dir_all(&bin).unwrap();
+    // The Ollama launcher takes its own options and forwards arguments after --.
+    fs::write(
+        home.join(".bash_profile"),
+        r#"export PATH="$HOME/.local/bin:$PATH"
+ollama() {
+    [[ $1 == launch && $2 == opencode && $3 == --model && $5 == -- ]] || return 64
+    local model=$4
+    shift 5
+    "$HOME/.local/bin/opencode" --model "$model" "$@"
+}
+alias ocq='ollama launch opencode --model fixture/qwen'
+"#,
+    )
+    .unwrap();
     for name in ["codex", "claude", "opencode"] {
         let cli = bin.join(name);
         fs::write(
@@ -47,6 +61,16 @@ set -eu
 [ -t 0 ] && [ -t 1 ] || exit 65
 if [ "$#" -eq 0 ]; then
     record=blank
+elif [ "${0##*/}" = opencode ] && [ "$1" = --model ]; then
+    printf 'Model: %s\n' "$2"
+    if [ "$#" -eq 2 ]; then record=custom-empty; else record=custom-task; fi
+elif [ "${0##*/}" = codex ] && [ "$1" = -m ]; then
+    printf 'Model: %s\n' "$2"
+    case "$4" in
+        'model_reasoning_effort="low"') record=low ;;
+        'model_reasoning_effort="ultra"') record=ultra ;;
+        *) exit 64 ;;
+    esac
 else
     record=${0##*/}
     if [ "$record" != opencode ]; then [ "$#" -eq 2 ] && [ "$1" = -- ] || exit 64; fi
@@ -136,6 +160,16 @@ fn main() {
     init_repository(&nested, "agent/review");
     init_repository(&command_dir, "command/fixture");
     let fixture_bin = install_agent_fixtures(&home);
+    fs::write(
+        home.join("extra-profile.toml"),
+        r#"
+[[commands]]
+name = "freshq"
+agent = "opencode"
+command = "opencode --model fixture/external"
+"#,
+    )
+    .unwrap();
     let models = TcpListener::bind(("127.0.0.1", 0)).unwrap();
     models.set_nonblocking(true).unwrap();
     let mut model_requests = 0;
@@ -177,6 +211,7 @@ int main(void) {
         .arg("--app")
         .env_clear()
         .env("HOME", &home)
+        .env("XDG_CONFIG_HOME", home.join("xdg-config"))
         .env("SHELL", "/bin/bash")
         .env("LANG", "en_US.UTF-8")
         .env(
@@ -252,6 +287,31 @@ int main(void) {
         fs::read(command_dir.join("opencode-argv")).unwrap(),
         b"--prompt=Review the fixture\nKeep `pwd` literal.\0"
     );
+    assert_eq!(
+        fs::read(nested.join("custom-empty-argv")).unwrap(),
+        b"--model\0fixture/qwen\0",
+    );
+    assert_eq!(
+        fs::read_to_string(command_dir.join("custom-task-cwd"))
+            .unwrap()
+            .trim_end(),
+        command_dir.to_str().unwrap()
+    );
+    assert_eq!(
+        fs::read(command_dir.join("custom-task-argv")).unwrap(),
+        b"--model\0fixture/qwen\0--prompt=--help review\nKeep $(touch alias-command-ran) literal.\0"
+    );
+    assert!(!command_dir.join("alias-command-ran").exists());
+    assert_eq!(
+        fs::read(home.join("external/custom-task-argv")).unwrap(),
+        b"--model\0fixture/external\0--prompt=review external edit\0"
+    );
+    for effort in ["low", "ultra"] {
+        assert_eq!(
+            fs::read(command_dir.join(format!("{effort}-argv"))).unwrap(),
+            format!("-m\0gpt-6.2-sol\0-c\0model_reasoning_effort=\"{effort}\"\0--\0Test the change\nReview this diff.\0").as_bytes()
+        );
+    }
     assert!(fs::read(nested.join("blank-argv")).unwrap().is_empty());
     assert!(!command_dir.join("shell-must-not-run").exists());
     assert_eq!(

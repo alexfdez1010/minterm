@@ -1,3 +1,4 @@
+use crate::agent_config;
 use muda::accelerator::{Key, KeyAccelerator, Modifiers};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -10,6 +11,10 @@ use std::{
 #[serde(default, rename_all = "camelCase")]
 pub struct Preferences {
     pub agent: String,
+    #[serde(skip_deserializing)]
+    pub agent_commands: Vec<AgentCommand>,
+    #[serde(skip_deserializing)]
+    pub agent_commands_error: Option<String>,
     pub shortcut: String,
     pub codex_ollama: bool,
     pub new_tab_mode: String,
@@ -20,10 +25,50 @@ pub struct Preferences {
     opencode_path: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub struct AgentCommand {
+    pub name: String,
+    pub agent: String,
+    pub command: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub shortcut: String,
+}
+
+fn built_in(agent: &str) -> bool {
+    matches!(agent, "codex" | "claude" | "opencode")
+}
+
+impl AgentCommand {
+    pub(crate) fn validate(&self) -> Result<(), String> {
+        let mut letters = self.name.bytes();
+        if self.name.len() > 64
+            || !letters.next().is_some_and(|b| b.is_ascii_alphabetic())
+            || !letters.all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
+        {
+            return Err("Start the name with a letter. Use up to 64 letters, numbers, dots, dashes or underscores.".into());
+        }
+        if built_in(&self.name.to_ascii_lowercase()) {
+            return Err("That name belongs to a built-in agent.".into());
+        }
+        if !built_in(&self.agent) {
+            return Err("Choose Codex, Claude Code or OpenCode.".into());
+        }
+        if self.command.trim().is_empty()
+            || self.command.len() > 4096
+            || self.command.chars().any(char::is_control)
+        {
+            return Err("Enter a single-line shell command of up to 4096 bytes.".into());
+        }
+        Ok(())
+    }
+}
+
 impl Default for Preferences {
     fn default() -> Self {
         Self {
             agent: "codex".into(),
+            agent_commands: Vec::new(),
+            agent_commands_error: None,
             shortcut: "⌘K".into(),
             codex_ollama: false,
             new_tab_mode: "terminal".into(),
@@ -37,6 +82,10 @@ impl Default for Preferences {
 }
 
 impl Preferences {
+    pub fn agent_command(&self, name: &str) -> Option<&AgentCommand> {
+        self.agent_commands.iter().find(|entry| entry.name == name)
+    }
+
     pub fn executable(&self, agent: &str) -> Option<&Path> {
         let value = match agent {
             "codex" => &self.codex_path,
@@ -51,7 +100,6 @@ impl Preferences {
 fn validated_value<'a>(field: &str, value: &'a str) -> Result<&'a str, String> {
     let value = value.trim();
     match field {
-        "agent" if matches!(value, "codex" | "claude" | "opencode") => Ok(value),
         "newTabMode" if matches!(value, "terminal" | "agent") => Ok(value),
         "codexOllama" if matches!(value, "true" | "false") => Ok(value),
         "shortcut" if accelerator(value).is_some() => Ok(value),
@@ -124,10 +172,22 @@ fn native_ollama_host(value: &str) -> &str {
 }
 
 pub fn read() -> Preferences {
-    path()
+    let mut prefs = path()
         .and_then(|path| fs::read(path).ok())
         .and_then(|bytes| load(&bytes).ok())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    match agent_config::read() {
+        Ok(config) => {
+            prefs.agent_commands = config.commands;
+            if let Some(default) = config.default {
+                prefs.agent = default;
+            } else if !built_in(&prefs.agent) && prefs.agent_command(&prefs.agent).is_none() {
+                prefs.agent = "codex".into();
+            }
+        }
+        Err(error) => prefs.agent_commands_error = Some(error),
+    }
+    prefs
 }
 
 fn migrate(saved: &mut serde_json::Map<String, serde_json::Value>) {
@@ -155,6 +215,19 @@ fn load(bytes: &[u8]) -> Result<Preferences, serde_json::Error> {
 }
 
 pub fn update(field: &str, value: &str) -> Result<(), String> {
+    if field == "agent" {
+        return agent_config::set_default(value);
+    }
+    if field == "agentCommand" {
+        #[derive(Deserialize)]
+        struct Edit {
+            previous: Option<AgentCommand>,
+            replacement: Option<AgentCommand>,
+        }
+        let edit: Edit = serde_json::from_str(value).map_err(|_| "Invalid command edit.")?;
+        agent_config::update(edit.previous.as_ref(), edit.replacement)?;
+        return Ok(());
+    }
     let path = path().ok_or("Could not locate the preferences folder.")?;
     update_at(&path, field, value)
 }
@@ -228,7 +301,36 @@ mod tests {
     }
 
     #[test]
-    fn switching_agents_keeps_the_legacy_ollama_configuration_and_custom_paths() {
+    fn custom_command_names_are_unambiguous_in_the_prompt() {
+        let mut command = AgentCommand {
+            name: "qwen-2.5".into(),
+            agent: "opencode".into(),
+            command: r#"opencode -m "local/qwen coder""#.into(),
+            shortcut: String::new(),
+        };
+        assert!(command.validate().is_ok());
+        for name in [
+            "",
+            "Codex",
+            "Claude",
+            "OPENCODE",
+            "my cmd",
+            "./file",
+            "cmd;other",
+        ] {
+            command.name = name.into();
+            assert!(command.validate().is_err(), "{name}");
+        }
+        command.name = "ocq".into();
+        command.command = "opencode\nexit".into();
+        assert!(command.validate().is_err());
+        command.command = "ocq".into();
+        command.agent = "missing".into();
+        assert!(command.validate().is_err());
+    }
+
+    #[test]
+    fn legacy_ollama_configuration_and_custom_paths_survive_updates() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("prefs.json");
         let old = br#"{"agent":"codex-ollama","ollamaModel":"coder:7b","codexPath":"/tmp/my codex","claudePath":"/tmp/claude","futureSetting":9}"#;
@@ -236,10 +338,10 @@ mod tests {
         let read = || load(&fs::read(&path).unwrap()).unwrap();
         assert_eq!(read().agent, "codex");
         assert!(read().codex_ollama);
-        update_at(&path, "agent", "opencode").unwrap();
+        update_at(&path, "newTabMode", "agent").unwrap();
         update_at(&path, "opencodePath", "/opt/Open Code/bin/client").unwrap();
         let prefs = read();
-        assert_eq!(prefs.agent, "opencode");
+        assert_eq!(prefs.agent, "codex");
         assert!(prefs.codex_ollama);
         assert_eq!(prefs.ollama_model, "coder:7b");
         assert_eq!(prefs.executable("codex"), Some(Path::new("/tmp/my codex")));
@@ -261,7 +363,7 @@ mod tests {
         let stored =
             || serde_json::from_slice::<serde_json::Value>(&fs::read(&path).unwrap()).unwrap();
 
-        update_at(&path, "agent", "claude").unwrap();
+        update_at(&path, "newTabMode", "terminal").unwrap();
         assert!(stored().get("shortcut").is_none());
         assert_eq!(read().shortcut, "⌘K");
 
@@ -272,14 +374,14 @@ mod tests {
         });
         fs::write(&path, legacy.to_string()).unwrap();
         assert_eq!(read().shortcut, "⌘K"); // effective at launch, before any settings change
-        update_at(&path, "agent", "opencode").unwrap();
+        update_at(&path, "newTabMode", "agent").unwrap();
         assert_eq!(stored()["formatVersion"], 1);
         assert!(stored().get("shortcut").is_none());
 
         legacy["shortcut"] = "⌥⌘Y".into();
         fs::write(&path, legacy.to_string()).unwrap();
         assert_eq!(read().shortcut, "⌥⌘Y");
-        update_at(&path, "agent", "claude").unwrap();
+        update_at(&path, "newTabMode", "terminal").unwrap();
         assert_eq!(stored()["shortcut"], "⌥⌘Y");
 
         update_at(&path, "shortcut", "⇧⌘K").unwrap();

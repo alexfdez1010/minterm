@@ -123,15 +123,21 @@ impl Sessions {
             return Err("The active working directory is unavailable.".into());
         }
         let prefs = crate::preferences::read();
-        let cli = crate::agent_cli::resolve(agent, prefs.executable(agent))?;
-        let ollama = (agent == "codex" && prefs.codex_ollama)
-            .then_some((prefs.ollama_host.as_str(), prefs.ollama_model.as_str()));
-        self.spawn(
-            id,
-            cwd,
-            size(cols, rows),
-            interactive_agent(agent, cli, cwd, prompt, ollama),
-        )
+        if let Some(error) = prefs.agent_commands_error {
+            return Err(error);
+        }
+        let cmd = if let Some(profile) = prefs.agent_command(agent) {
+            let shell = CommandBuilder::new_default_prog().get_shell();
+            let cli =
+                crate::agent_cli::AgentCli::shell_command(Path::new(&shell), &profile.command, cwd);
+            interactive_agent(&profile.agent, cli, cwd, prompt, None)
+        } else {
+            let cli = crate::agent_cli::resolve(agent, prefs.executable(agent))?;
+            let ollama = (agent == "codex" && prefs.codex_ollama)
+                .then_some((prefs.ollama_host.as_str(), prefs.ollama_model.as_str()));
+            interactive_agent(agent, cli, cwd, prompt, ollama)
+        };
+        self.spawn(id, cwd, size(cols, rows), cmd)
     }
 
     fn spawn(
@@ -353,6 +359,7 @@ fn interactive_agent(
     cmd.arg("-C");
     cmd.arg(cwd);
     cmd.arg(cli.program);
+    cmd.args(cli.args);
     if let Some((host, model)) = ollama {
         cmd.args(["--oss", "--local-provider", "ollama"]);
         if !model.trim().is_empty() {
@@ -912,6 +919,7 @@ mod tests {
             });
             let cli = crate::agent_cli::AgentCli {
                 program: program.clone(),
+                args: Vec::new(),
                 path: None,
             };
             let cmd = interactive_agent(name, cli, &work, prompt, oss);
@@ -938,6 +946,81 @@ mod tests {
             assert!(!work.join("surprise").exists());
             sessions.write(ID, b"interactive input\r").unwrap();
             read_until(&sessions, &rx, "<interactive input>");
+        }
+    }
+
+    #[test]
+    fn configured_commands_expand_login_aliases_and_functions_in_the_tab_directory() {
+        let fixture = tempfile::tempdir().unwrap();
+        let home = fixture.path();
+        let work = home.join("project 'with spaces' $(touch wrong)");
+        std::fs::create_dir(&work).unwrap();
+        let startup = r#"
+            cd /
+            probe() {
+                test -t 0 && test -t 1 && test -t 2 || return 41
+                for arg do printf '%s\0' "$arg"; done > args
+                printf 'custom-ready\n'
+                IFS= read -r line
+                printf '<%s>\n' "$line"
+            }
+            alias ocq='probe -m "qwen local"'
+        "#;
+        let prompt = "--help \" ' $(touch surprise)\n`touch surprise`";
+        for (shell, startup_file) in [("/bin/zsh", ".zshrc"), ("/bin/bash", ".bash_profile")] {
+            std::fs::write(home.join(startup_file), startup).unwrap();
+            for (name, command, task, expected) in [
+                (
+                    "opencode",
+                    "ocq",
+                    prompt,
+                    vec![
+                        "-m".into(),
+                        "qwen local".into(),
+                        format!("--prompt={prompt}"),
+                    ],
+                ),
+                (
+                    "claude",
+                    "probe --model 'my model'",
+                    prompt,
+                    vec![
+                        "--model".into(),
+                        "my model".into(),
+                        "--".into(),
+                        prompt.into(),
+                    ],
+                ),
+                (
+                    "opencode",
+                    "ocq",
+                    "",
+                    vec!["-m".into(), "qwen local".into()],
+                ),
+            ] {
+                let cli =
+                    crate::agent_cli::AgentCli::shell_command(Path::new(shell), command, &work);
+                let mut cmd = interactive_agent(name, cli, &work, task, None);
+                cmd.env_clear();
+                cmd.env("HOME", home);
+                cmd.env("ZDOTDIR", home);
+                cmd.env("PATH", "/usr/bin:/bin");
+                cmd.env("BASH_SILENCE_DEPRECATION_WARNING", "1");
+                let (tx, rx) = mpsc::channel();
+                let mut sessions = Sessions::new(move |event| {
+                    let _ = tx.send(event);
+                });
+                sessions.spawn(ID, &work, size(100, 20), cmd).unwrap();
+                read_until(&sessions, &rx, "custom-ready");
+                assert_eq!(
+                    std::fs::read(work.join("args")).unwrap(),
+                    (expected.join("\0") + "\0").as_bytes()
+                );
+                assert!(!work.join("surprise").exists());
+                assert_eq!(sessions.live_cwd(ID).unwrap(), work.canonicalize().unwrap());
+                sessions.write(ID, b"next message\r").unwrap();
+                read_until(&sessions, &rx, "<next message>");
+            }
         }
     }
 

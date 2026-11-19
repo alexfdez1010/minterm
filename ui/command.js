@@ -1,4 +1,4 @@
-import { $, agentNames } from "./shared.js";
+import { $, agentLabel, agentNames, send } from "./shared.js";
 
 // Locate the prompt in terminal cells, including wide glyphs and soft wraps.
 // Custom prompts without a recognizable terminator keep the real cursor as their anchor.
@@ -36,8 +36,12 @@ function promptAnchor(term) {
 }
 
 export class CommandMode {
-  constructor(currentTab, openAgent, toggle) {
+  constructor(currentTab, openAgent, toggle, notice) {
     this.currentTab = currentTab;
+    this.openAgent = openAgent;
+    this.notice = notice;
+    this.profiles = new Set();
+    this.bindings = new Map();
     this.agent = "codex";
     this.shortcut = "";
     this.newTabMode = "terminal";
@@ -57,37 +61,153 @@ export class CommandMode {
       if (buffer.viewportY !== buffer.baseY) tab.base.term.scrollToBottom();
       this.layout();
     };
-    field.onkeydown = (event) => {
-      if (event.isComposing) return;
-      if (event.key === "Escape") {
-        event.preventDefault();
-        toggle();
-      } else if (
-        event.key === "Enter" &&
-        !event.shiftKey &&
-        !event.ctrlKey &&
-        !event.metaKey &&
-        !event.altKey
-      ) {
-        event.preventDefault();
-        if (!event.repeat) $("command-form").requestSubmit();
-      }
-    };
+    this.bindLaunchKeys(field, toggle);
     $("command-form").onsubmit = (event) => {
       event.preventDefault();
-      const tab = currentTab();
-      if (tab?.mode !== "compose" || !tab.base.cwdKnown) return;
-      const prompt = field.value.trim();
-      tab.draft = "";
-      openAgent(tab, this.agent, prompt);
+      this.submit();
     };
+  }
+
+  bindLaunchKeys(field, toggle) {
+    const currentTab = this.currentTab;
+    // Keep repeats from a held launch key out of the newly focused CLI.
+    const held = new Set();
+    const physicalKey = (event) => event.code || event.key;
+    const cancelChord = () => {
+      this.enterTab = null;
+    };
+    field.addEventListener("blur", () => {
+      cancelChord();
+      this.queuedSubmit = null;
+    });
+    field.addEventListener("compositionstart", cancelChord);
+    window.addEventListener("blur", () => {
+      cancelChord();
+      held.clear();
+    });
+    document.addEventListener("keydown", (event) => {
+      if (!held.has(physicalKey(event))) return;
+      if (event.repeat) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      } else {
+        held.delete(physicalKey(event));
+      }
+    }, true);
+    document.addEventListener("keyup", (event) => {
+      if (held.delete(physicalKey(event))) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      } else if (event.key === "Enter" && this.enterTab) {
+        const tab = this.enterTab;
+        cancelChord();
+        event.preventDefault();
+        if (!event.isComposing && document.activeElement === field && currentTab() === tab) {
+          this.submit();
+        }
+      }
+    }, true);
+    field.onkeydown = (event) => {
+      if (event.isComposing || event.keyCode === 229) {
+        cancelChord();
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        cancelChord();
+        toggle();
+        return;
+      }
+      if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) {
+        cancelChord();
+        return;
+      }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        if (event.repeat) return;
+        if (this.bindings.size || this.refreshing) {
+          this.enterTab = currentTab();
+          this.enterKey = physicalKey(event);
+        } else {
+          held.add(physicalKey(event));
+          this.submit();
+        }
+      } else if (this.enterTab) {
+        const key = event.key.toUpperCase();
+        const tab = this.enterTab;
+        cancelChord();
+        if (tab === currentTab() && /^[A-Z]$/.test(key) && (this.bindings.has(key) || this.refreshing)) {
+          event.preventDefault();
+          held.add(this.enterKey);
+          held.add(physicalKey(event));
+          this.submit(key);
+        }
+      }
+    };
+  }
+
+  canLaunch(agent) {
+    if (!this.error && (Object.hasOwn(agentNames, agent) || this.profiles.has(agent))) return true;
+    this.notice(this.error || "Agent command unavailable. Check Settings.");
+    return false;
+  }
+
+  // Coalesce focus changes and launcher opens. Text entry stays live while
+  // the host reads commands that may have changed in another terminal.
+  refresh() {
+    if (!this.refreshing) {
+      this.refreshing = new Promise((resolve) => {
+        this.didRefresh = resolve;
+      });
+      send("agentPreferences");
+    }
+    return this.refreshing;
+  }
+
+  async submit(boundKey) {
+    const tab = this.currentTab();
+    if (tab?.mode !== "compose") return;
+    const field = $("command-input");
+    let prompt = field.value;
+    if (this.refreshing) {
+      const queued = { tab, prompt };
+      this.queuedSubmit = queued;
+      await this.refreshing;
+      if (this.queuedSubmit !== queued || this.currentTab() !== tab || field.value !== prompt) return;
+      this.queuedSubmit = null;
+    }
+    let agent = this.agent;
+    if (boundKey) {
+      agent = this.bindings.get(boundKey);
+      if (!agent) {
+        this.notice(this.error || "No agent command uses Enter+" + boundKey + ".");
+        return;
+      }
+    } else {
+      const prefix = /^(\S+)(?:\s|$)/u.exec(prompt);
+      if (prefix && this.profiles.has(prefix[1])) {
+        agent = prefix[1];
+        prompt = prompt.slice(prefix[0].length);
+      }
+    }
+    if (this.openAgent(tab, agent, prompt.trim() ? prompt : "")) tab.draft = "";
   }
 
   preferences(value) {
     if (!value) return;
-    this.agent = Object.hasOwn(agentNames, value.agent) ? value.agent : "codex";
+    this.profiles.clear();
+    this.bindings.clear();
+    for (const { name, shortcut } of value.agentCommands || []) {
+      this.profiles.add(name);
+      if (shortcut) this.bindings.set(shortcut.slice(-1).toUpperCase(), name);
+    }
+    this.agent = value.agent || "codex";
+    this.error = value.agentCommandsError;
     this.shortcut = value.shortcut || "";
     this.newTabMode = value.newTabMode === "agent" ? "agent" : "terminal";
+    this.refreshing = null;
+    this.didRefresh?.();
+    this.didRefresh = null;
     this.sync();
   }
 
@@ -97,6 +217,7 @@ export class CommandMode {
     this.listeners = [];
     this.session?.term.element?.style.removeProperty("transform");
     this.session?.page.classList.remove("composing");
+    this.enterTab = null;
     this.session = session;
     this.shift = 0;
     cancelAnimationFrame(this.frame);
@@ -187,7 +308,7 @@ export class CommandMode {
     let tooltip = "Agent mode";
     if (agentShown) tooltip = "Return to shell";
     else if (companion && ["opening", "live"].includes(companion.state)) {
-      tooltip = "Return to " + agentNames[companion.agent];
+      tooltip = "Return to " + agentLabel(companion.agent);
     }
     toggle.title = this.shortcut ? tooltip + " (" + this.shortcut + ")" : tooltip;
     toggle.setAttribute("aria-label", tooltip);
@@ -201,7 +322,7 @@ export class CommandMode {
     const draft = composing ? tab.draft || "" : "";
     if (field.value !== draft) field.value = draft;
     if (!composing) return;
-    const name = agentNames[this.agent];
+    const name = agentLabel(this.agent);
     $("command-marker").setAttribute("aria-label", name);
     field.setAttribute("aria-label", "Initial task for " + name);
     this.layout();

@@ -24,13 +24,19 @@
     }
     NSUInteger modifiers = [key[@"modifiers"] unsignedIntegerValue];
     [self.window makeFirstResponder:self.view];
-    NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown
-        location:NSZeroPoint modifierFlags:modifiers
-        timestamp:NSProcessInfo.processInfo.systemUptime windowNumber:self.window.windowNumber
-        context:nil characters:key[@"text"] charactersIgnoringModifiers:key[@"plain"] ?: key[@"text"]
-        isARepeat:NO keyCode:[key[@"code"] unsignedShortValue]];
-    BOOL handled = (modifiers & NSEventModifierFlagCommand) && [NSApp.mainMenu performKeyEquivalent:event];
-    if (!handled) [self.window sendEvent:event];
+    NSString *phase = key[@"phase"];
+    BOOL handled = NO;
+    for (NSString *direction in phase ? @[phase] : @[@"down", @"up"]) {
+        BOOL down = [direction isEqual:@"down"];
+        NSEvent *event = [NSEvent keyEventWithType:down ? NSEventTypeKeyDown : NSEventTypeKeyUp
+            location:NSZeroPoint modifierFlags:modifiers
+            timestamp:NSProcessInfo.processInfo.systemUptime windowNumber:self.window.windowNumber
+            context:nil characters:key[@"text"] charactersIgnoringModifiers:key[@"plain"] ?: key[@"text"]
+            isARepeat:NO keyCode:[key[@"code"] unsignedShortValue]];
+        if (down && (modifiers & NSEventModifierFlagCommand) && [NSApp.mainMenu performKeyEquivalent:event])
+            handled = YES;
+        else [self.window sendEvent:event];
+    }
     reply(@(handled), nil);
 }
 @end

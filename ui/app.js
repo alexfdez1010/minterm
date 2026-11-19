@@ -1,4 +1,5 @@
-import { $, agentNames, element, icon, send } from "./shared.js";
+import { $, agentLabel, element, icon, send } from "./shared.js";
+import { setAgentChoices } from "./agents.js";
 import { initInspector, refreshInspector, receiveServices, receiveAgents } from "./inspector.js";
 import { Activity } from "./activity.js";
 import { theme, terminalFont, defaultFontSize } from "./theme.js";
@@ -16,7 +17,7 @@ let contextTimer, noticeTimer, confirmation, previousPanel;
 const currentTab = () => tabs.get(active);
 const visibleSession = (tab) => (tab?.mode === "agent" ? tab.companion : tab?.base);
 const current = () => visibleSession(currentTab());
-const commandMode = new CommandMode(currentTab, openInteractive, toggleCommand);
+const commandMode = new CommandMode(currentTab, openInteractive, toggleCommand, notice);
 function focusSession() {
   if (currentTab()?.mode === "compose") $("command-input").focus();
   else current()?.term.focus();
@@ -57,10 +58,11 @@ function updateTab(tab) {
   const title = session.title.replace(/(^|:\s+)(?:~?\/)[^\n]*\/([^/]+)$/, "$1$2");
   const name =
     session.kind === "agent"
-      ? session.taskTitle || agentNames[session.agent] + " · " + pathLabel
+      ? session.taskTitle || agentLabel(session.agent) + " · " + pathLabel
       : title || pathLabel;
   tab.label.textContent = name;
   const details = [session.path];
+  if (session.kind === "agent") details.push(agentLabel(session.agent));
   if (session.git) {
     const changes = session.git.dirty === true ? " · Tracked changes" : "";
     details.push((session.git.detached ? "HEAD " : "") + session.git.branch + changes);
@@ -110,6 +112,7 @@ function selectTab(id) {
   requestContext();
 }
 function setMode(tab, mode) {
+  if (mode === "compose" && tab.mode !== mode) commandMode.refresh();
   tab.mode = mode;
   tab.base.term.options.disableStdin = mode === "compose";
   selectTab(tab.id);
@@ -193,6 +196,7 @@ function createSession(id, tabId, kind, source) {
   return session;
 }
 function newTab(task, from = current()?.id, mode = commandMode.newTabMode) {
+  if (tabs.size && (task || mode === "agent") && !commandMode.canLaunch(task?.agent || commandMode.agent)) return;
   const id = nextId++;
   const row = element("div", "tab");
   row.dataset.id = String(id);
@@ -232,11 +236,12 @@ function dispatchInteractive(tab) {
   });
 }
 function openInteractive(tab, agent, prompt) {
+  if (tab.companion && ["opening", "live"].includes(tab.companion.state)) {
+    setMode(tab, "agent");
+    return true;
+  }
+  if (!commandMode.canLaunch(agent)) return false;
   if (tab.companion) {
-    if (["opening", "live"].includes(tab.companion.state)) {
-      setMode(tab, "agent");
-      return;
-    }
     disposeSession(tab.companion);
   }
   const companion = createSession(nextId++, tab.id, "agent", tab.base);
@@ -247,6 +252,7 @@ function openInteractive(tab, agent, prompt) {
   tab.companion = companion;
   setMode(tab, "agent");
   dispatchInteractive(tab);
+  return true;
 }
 function disposeSession(session) {
   sessions.delete(session.id);
@@ -353,6 +359,10 @@ function command(name) {
       break;
   }
 }
+function applyAgentPreferences(prefs) {
+  commandMode.preferences(prefs);
+  setAgentChoices(prefs?.agentCommands || [], commandMode.agent, commandMode.error);
+}
 window.minterm = {
   receive(name, data) {
     const session = sessions.get(data?.id);
@@ -360,7 +370,7 @@ window.minterm = {
     switch (name) {
       case "ready":
         startPath = data.path;
-        commandMode.preferences(data.preferences);
+        applyAgentPreferences(data.preferences);
         newTab();
         setPanel(panel, false);
         break;
@@ -437,7 +447,7 @@ window.minterm = {
         command(data);
         break;
       case "preferences":
-        commandMode.preferences(data);
+        applyAgentPreferences(data);
         break;
       case "confirm":
         showConfirmation(data);
@@ -505,6 +515,7 @@ initInspector(
     newTab(task);
   },
   () => commandMode.agent,
+  () => commandMode.refresh(),
 );
 $("titlebar").addEventListener("mousedown", (e) => {
   if (e.button === 0 && !e.target.closest("button, summary, .tab")) send("drag");
@@ -557,7 +568,10 @@ function refreshVisible() {
   requestContext();
   if (panel === "inspector") refreshInspector();
 }
-window.addEventListener("focus", refreshVisible);
+window.addEventListener("focus", () => {
+  commandMode.refresh();
+  refreshVisible();
+});
 setInterval(refreshVisible, 4000);
 // The PTY geometry must use the final monospace metrics from its first frame.
 document.fonts.load(defaultFontSize + 'px "Martian Mono"').then(

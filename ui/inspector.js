@@ -6,8 +6,8 @@ let services,
   scanPending = false,
   agentsPending = false,
   lastScan = 0;
-export function initInspector(select, label, launch, preferredAgent) {
-  initAgents(select, label, launch, preferredAgent);
+export function initInspector(select, label, launch, preferredAgent, refreshPreferences) {
+  initAgents(select, label, launch, preferredAgent, refreshPreferences);
   for (const section of document.querySelectorAll("#inspect-panel details")) {
     section.addEventListener("toggle", () => {
       if (section.open && !$("sidebar").hidden && !$("inspect-panel").hidden) refreshInspector();
