@@ -29,6 +29,9 @@ if [[ -o interactive ]] && builtin source "$MINTERM_SHELL_INTEGRATION/git.sh"; t
       precmd_functions+=(_minterm_zsh_precmd)
       _minterm_zsh_precmd
     fi
+    if [[ ${MINTERM_AUTOSUGGEST:-1} != 0 ]]; then
+      builtin source "$MINTERM_SHELL_INTEGRATION/zsh/suggest.zsh" && _minterm_suggest_install
+    fi
     unfunction _minterm_zsh_install
   }
   builtin zmodload zsh/sched && builtin sched +0 _minterm_zsh_install

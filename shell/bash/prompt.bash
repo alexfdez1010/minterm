@@ -33,3 +33,16 @@ __minterm_bash_prompt() {
     PS1+='\[\e['${color}'m\]❯\[\e[0m\] '
     return "$status"
 }
+
+# Apple's Bash 3.2 Readline has no post-display buffer. Shift-Tab inserts and
+# cycles the native completion candidates; keep the user's Tab and arrow keys.
+if [[ $- == *i* && ${MINTERM_AUTOSUGGEST:-1} != 0 ]]; then
+    for __minterm_map in emacs-standard vi-insert; do
+        __minterm_bindings=$(builtin bind -m "$__minterm_map" -p; builtin bind -m "$__minterm_map" -s)
+        case $'\n'$__minterm_bindings in
+            *$'\n"\\e[Z":'*) ;;
+            *) builtin bind -m "$__minterm_map" '"\e[Z": menu-complete' ;;
+        esac
+    done
+    unset __minterm_map __minterm_bindings
+fi

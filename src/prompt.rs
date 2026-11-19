@@ -20,6 +20,9 @@ impl ShellIntegration {
         if cmd
             .get_env("MINTERM_PROMPT")
             .is_some_and(|value| value == "0")
+            && cmd
+                .get_env("MINTERM_AUTOSUGGEST")
+                .is_some_and(|value| value == "0")
         {
             return Ok(());
         }
@@ -77,6 +80,10 @@ fn install() -> io::Result<TempDir> {
     fs::create_dir(root.join("zsh"))?;
     for (name, contents) in [
         ("git.sh", include_bytes!("../shell/git.sh").as_slice()),
+        (
+            "zsh/suggest.zsh",
+            include_bytes!("../shell/zsh/suggest.zsh").as_slice(),
+        ),
         (
             "bash/prompt.bash",
             include_bytes!("../shell/bash/prompt.bash").as_slice(),
