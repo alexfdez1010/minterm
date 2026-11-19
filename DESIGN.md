@@ -21,7 +21,8 @@ The fonts ship locally. Wait for the terminal font before measuring the first gr
 - Tabs share the native title bar with the new-tab and tool buttons. Icon buttons have an accessible name and a tooltip. The active tab has a filled surface and `aria-selected`.
 - The shell prompt on zsh and Bash uses the working directory, an optional Git ref and a chevron. Blue marks the directory, green marks the branch, and amber indicates a failed command. Keep prompt segments within the terminal cell grid.
 - The terminal starts directly below the tabs. A tab tooltip carries the full path and tracked changes even while a full-screen CLI covers the prompt. An exited shell gets a recovery action next to its session.
-- The inspector uses disclosure controls. Agents starts expanded. Ports and databases start closed and request data when opened. On narrower windows the inspector overlays the terminal so full-screen CLI layouts retain their width.
+- The inspector uses disclosure controls. Agents starts expanded. Ports starts closed. It combines local listeners and Docker port mappings in one scan and one list. On narrower windows the inspector overlays the terminal so full-screen CLI layouts retain their width.
+- Switching modes keeps the shell and its agent inside the selected tab. The agent command field sits next to the terminal it will use.
 - Agent rows use the task as the primary label and the current action as supporting text. Reserve attention colors and text for confirmed process limits or a visible request for input. A summary identifies its AI origin.
 - Use the spacing scale for ordinary control groups. Use alignment and surface changes to group information. Keep the native traffic-light clearance and the measured terminal cell dimensions explicit.
 - Preserve native Settings labels and controls. The assistant’s provider selection, question and reply belong beside the shell.
