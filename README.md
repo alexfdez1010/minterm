@@ -48,13 +48,29 @@ The agents list recognizes Codex, Claude Code and OpenCode, including sessions s
 
 ## Agent sessions
 
-Choose **Codex**, **Claude Code** or **OpenCode** in **Settings → General → Agent command**. Install the CLI and complete its own sign-in or local model setup. You can also choose a custom executable, record a different mode shortcut and set which mode ⌘T opens.
+Choose the default agent in **Settings → General → Agent command**. Install the CLI and complete its own sign-in or local model setup. You can select a saved command, set an executable for a built-in agent, record a different mode shortcut and choose which mode ⌘T opens.
 
 On upgrade, the previous default ⇧⌘K changes to ⌘K. Other saved shortcuts are preserved.
 
 Press **⌘K** in a shell. A robot replaces the prompt chevron. Type your task there and press Return to start the selected CLI in the shell’s current directory. Shift-Return inserts a newline. Press Return at an empty prompt to open the CLI without an initial task. Press ⌘K again to move between the shell and the running agent. Each keeps its own input, processes and scrollback.
 
 **Agents → +** opens a new tab for a task. The inspector reads activity locally and marks recognizable confirmation prompts as **Input requested**. Select the agent to answer in its terminal.
+
+### Agent commands
+
+At the robot prompt, type a saved name and press Return to start it. To pass an initial task, type the name followed by the task, such as `ocq Review the current diff`. Other text goes to your default agent. A running agent keeps its own keyboard controls.
+
+| Starter command | Launches | Shortcut at the robot prompt |
+| --- | --- | --- |
+| `ocq` | Your shell’s `ocq` alias for OpenCode with Qwen through Ollama | |
+| `sol-light` | Codex with `gpt-6.2-sol` and low reasoning effort | Hold Return and press L |
+| `sol-ultra` | Codex with `gpt-6.2-sol` and ultra reasoning effort | Hold Return and press U |
+
+Type a task before the chord to send it to that profile. Release Return on its own for the usual launch. The `ocq` preset calls `ocq --` so that `ollama launch` forwards the task to OpenCode. Set its command to `ocq` if your alias starts OpenCode directly.
+
+Edit profiles in **Settings → Commands** or in `~/.config/minterm/agents.toml`. When `XDG_CONFIG_HOME` is set to an absolute directory, Minterm uses `$XDG_CONFIG_HOME/minterm/agents.toml`. **Show in Finder** opens the file’s location. The first launch copies the [starter TOML](config/agents.toml) there.
+
+Add a `[[commands]]` table per profile. Its `name` is what you type, `agent` selects the initial-task syntax (`codex`, `claude` or `opencode`), and `command` is the invocation in your interactive login shell. Put persistent aliases or functions in that shell’s startup files. The optional `shortcut` takes the form `"Enter+L"`. To set the default in the file, put `default = "sol-light"` above the first table. To use a changed profile, return to Minterm and start a new agent session.
 
 ### Codex with Ollama
 

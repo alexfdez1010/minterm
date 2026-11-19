@@ -24,7 +24,7 @@ For local development, `./macos/bundle.sh` builds the signed app in `dist/Minter
 | Agent recognition, Git, TCP listeners and Docker | `src/agents.rs`, `src/inspect.rs` |
 | Interactive agent executable resolution and launch | `src/agent_cli.rs`, `src/sessions.rs` |
 | Local agent activity and launch dialog | `ui/activity.js`, `ui/agents.js` |
-| Agent preferences and native Settings | `src/settings.rs`, `src/preferences.rs`, `macos/settings.m`, `macos/preferences.m` |
+| Agent profiles, preferences and native Settings | `config/agents.toml`, `src/agent_config.rs`, `src/preferences.rs`, `macos/preferences.m`, `macos/agent_commands.m` |
 | Tabs, agent mode and inspector | `ui/app.js`, `ui/command.js`, `ui/inspector.js`, `ui/app.css` |
 
 Use [DESIGN.md](DESIGN.md) and the tokens in `ui/tokens.css` when extending the workspace.
@@ -36,6 +36,7 @@ The project skill [minterm-macos](.agents/skills/minterm-macos/SKILL.md) covers 
 - The UI and renderer ship as local assets embedded by Rust. Register new modules in `src/assets.rs`. Preserve the local origin check, content policy and navigation boundary.
 - Keep shell output as bytes through the PTY. Acknowledge each output block after the renderer consumes it. Each tab owns a shell and an optional interactive agent with a separate PTY. Address input, resize and output acknowledgements by PTY ID, including while that surface is hidden. Resolve the shell’s live working directory when starting its agent.
 - Let the OS menu own macOS commands. Keep new-tab creation and selection on the input path. Run Git, Docker and process scans outside that path.
+- To configure an installed Minterm, edit the user’s `agents.toml` described in the [agent commands guide](README.md#agent-commands). The repository copy seeds new installations. Keep tasks and working directories in process arguments when extending command launch. Only the saved command itself is shell source.
 - Keep service discovery read-only and bounded. Introduce new agent recognition with executable or package-entrypoint fixtures. Only process metadata needed by the UI crosses the bridge.
 - Preserve the upstream JS and licenses in `ui/vendor/`. Make application changes in the adjacent source modules. Check the bundled app if a change affects paths, signing or macOS startup.
 
