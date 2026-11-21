@@ -13,6 +13,22 @@
       didReceiveScriptMessage:(WKScriptMessage *)message
                  replyHandler:(void (^)(id, NSString *))reply {
     NSDictionary *key = message.body;
+    if (key[@"closeWindow"]) {
+        NSWindow *window = self.window;
+        id<NSWindowDelegate> delegate = window.delegate;
+        if (![delegate respondsToSelector:@selector(windowShouldClose:)]) {
+            reply(nil, @"Missing window close delegate");
+            return;
+        }
+        [delegate windowShouldClose:window];
+        // The hidden window receives no AppKit input event to wake Tao after
+        // this direct delegate call. Post one so it can drain the queued event.
+        [NSApp postEvent:[NSEvent otherEventWithType:NSEventTypeApplicationDefined
+            location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0
+            context:nil subtype:0 data1:0 data2:0] atStart:NO];
+        reply(@YES, nil);
+        return;
+    }
     if (key[@"preferences"]) { qa_preferences(self.window, key[@"preferences"], reply); return; }
     if (key[@"menuItem"]) {
         NSMenu *menu = [NSApp.mainMenu itemWithTitle:@"Shell"].submenu;
@@ -75,7 +91,10 @@ void qa_install(void *windowPointer, const char *source) {
                     NSString *home = NSProcessInfo.processInfo.environment[@"HOME"];
                     [NSData.data writeToFile:[home stringByAppendingPathComponent:@"smoke-passed"] atomically:YES];
                 }
-                [view evaluateJavaScript:@"window.ipc.postMessage(JSON.stringify({action:'quit',force:true}))" completionHandler:nil];
+                NSString *close = error || ![value isEqual:@"passed"]
+                    ? @"window.ipc.postMessage(JSON.stringify({action:'quit',force:true}))"
+                    : @"document.getElementById('confirm-close').click()";
+                [view evaluateJavaScript:close completionHandler:nil];
             }];
     }];
 }

@@ -541,6 +541,13 @@ try {
     await enter('/exit');
     await expect('Legacy shortcut agent exits', () => surface().dataset.state === 'ended');
   }
+  await window.webkit.messageHandlers.testKey.postMessage({closeWindow: true});
+  await expect('Closing the main window asks for confirmation', () =>
+    $('#confirm').open && $('#confirm-title').textContent === 'Quit Minterm?');
+  $('#cancel').click();
+  await expect('Cancelling keeps the main window and terminal open', () => !$('#confirm').open && selected());
+  await window.webkit.messageHandlers.testKey.postMessage({closeWindow: true});
+  await expect('Closing again offers to quit Minterm', () => $('#confirm').open);
   return 'passed';
 } catch (err) {
   return String(err) + '\n' + JSON.stringify({

@@ -71,14 +71,23 @@ pub fn launch(
         .build(&window)?;
     on_ready(&window, &view);
     let mut app = App::new(view, proxy, start_dir);
+    let main_window = window.id();
     event_loop.run(move |event, _, control| {
         let _keep_menu = &menu;
         *control = ControlFlow::Wait;
         match event {
             Event::WindowEvent {
+                window_id,
                 event: WindowEvent::CloseRequested,
                 ..
-            } => app.act(Action::Quit { force: false }),
+            } if window_id == main_window => app.act(Action::Quit { force: false }),
+            // AppKit can destroy a window directly, without asking its delegate
+            // for permission. There is no window left to host a confirmation.
+            Event::WindowEvent {
+                window_id,
+                event: WindowEvent::Destroyed,
+                ..
+            } if window_id == main_window => app.act(Action::Quit { force: true }),
             Event::UserEvent(Message::Action(Action::Drag)) => {
                 let _ = window.drag_window();
             }
