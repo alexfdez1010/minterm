@@ -866,7 +866,7 @@ mod tests {
         sessions.write(ID, b"\r").unwrap();
         let output = read_until(&sessions, &rx, "❯");
         assert!(
-            output.contains("\r\nhist\r\n"),
+            output.contains("\r\n\x1b]6973;print -r -- hist\x07hist\r\n"),
             "Enter accepted the preview: {output:?}"
         );
     }

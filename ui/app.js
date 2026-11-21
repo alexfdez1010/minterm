@@ -63,7 +63,7 @@ function updateTab(tab) {
   const name =
     session.kind === "agent"
       ? session.taskTitle || agentLabel(session.agent) + " · " + pathLabel
-      : title || pathLabel;
+      : (active === tab.id && session.lastCommand) || title || pathLabel;
   tab.label.textContent = name;
   const details = [session.path];
   if (session.kind === "agent") details.push(agentLabel(session.agent));
@@ -105,8 +105,11 @@ function selectTab(id) {
   const tab = tabs.get(id);
   if (!tab) return;
   const previous = currentTab();
-  if (previous && previous !== tab) markSelected(previous, false);
   active = id;
+  if (previous && previous !== tab) {
+    markSelected(previous, false);
+    updateTab(previous);
+  }
   markSelected(tab, true);
   updateTab(tab);
   tab.row.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -191,6 +194,24 @@ function createSession(id, tabId, kind, source) {
     if (session.state === "live") send("resize", { id, cols, rows });
     if (current() === session) updateSessionState();
   });
+  if (kind === "shell") {
+    // Matches the private OSC emitted by the shell integration.
+    term.parser.registerOscHandler(6973, (command) => {
+      const preview = command
+        .replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, " ")
+        .trim()
+        .replace(/\s+/g, " ");
+      if (preview) {
+        session.lastCommand = preview.slice(0, 80);
+        const tab = currentTab();
+        if (current() === session) {
+          updateTab(tab);
+          tab.row.scrollIntoView({ block: "nearest", inline: "nearest" });
+        }
+      }
+      return true;
+    });
+  }
   term.onTitleChange((title) => {
     session.title = title
       .replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, "")

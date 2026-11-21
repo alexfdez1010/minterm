@@ -1,8 +1,20 @@
 # Loaded once by PROMPT_COMMAND, after Bash finishes its normal login sequence.
 builtin source "$MINTERM_SHELL_INTEGRATION/git.sh"
 
+__minterm_bash_command_title() {
+    local entry=$1
+    # Strip history's padding and event number, keeping the command text literal.
+    entry=${entry#"${entry%%[![:blank:]]*}"}
+    _minterm_command_title "${entry#*[[:blank:]]}"
+}
+
 __minterm_bash_prompt() {
-    local status=$1 color=32
+    local status=$1 color=32 entry
+    entry=$(HISTTIMEFORMAT= builtin history 1)
+    if [[ ${__minterm_bash_history+x} && $entry != "$__minterm_bash_history" ]]; then
+        __minterm_bash_command_title "$entry"
+    fi
+    __minterm_bash_history=$entry
     if [[ ${MINTERM_PROMPT-1} == 0 ]]; then
         return "$status"
     fi

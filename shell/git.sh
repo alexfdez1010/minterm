@@ -49,3 +49,11 @@ _minterm_git_branch() {
     esac
     return 0
 }
+
+# Pass the command preview through a Minterm OSC without echoing it in the PTY.
+_minterm_command_title() {
+    local command=${1:0:160}
+    command=${command//[[:cntrl:]]/ }
+    [[ -n $command ]] && builtin printf '\033]6973;%s\007' "$command"
+    return 0
+}

@@ -22,7 +22,13 @@ if [[ -o interactive ]] && builtin source "$MINTERM_SHELL_INTEGRATION/git.sh"; t
     PROMPT+=' %(?.%F{green}.%F{yellow})❯%f '
   }
 
+  _minterm_zsh_preexec() {
+    [[ -o histignorespace && $1 == ' '* ]] && return 0
+    _minterm_command_title "$1"
+  }
+
   _minterm_zsh_install() {
+    preexec_functions+=(_minterm_zsh_preexec)
     # zsh's scheduler runs after startup and before the first interactive prompt.
     if [[ ${MINTERM_PROMPT:-1} != 0 && -o promptpercent ]]; then
       typeset -gi _minterm_branch_slot=$(( ${#psvar} + 1 ))

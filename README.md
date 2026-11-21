@@ -44,7 +44,7 @@ Minterm disables macOS inline text predictions in its terminal and task fields s
 | ⌘0 | Restore the default terminal text size |
 | ⌘, | Open Settings |
 
-In zsh and Bash, the prompt shows the current folder, the Git branch and a chevron. The chevron turns amber when a command fails. A detached checkout shows its short commit ID. Minterm reads Git’s HEAD file to build the prompt. To keep your existing prompt, launch Minterm with `MINTERM_PROMPT=0`. Other shells keep their own prompt.
+In zsh and Bash, the prompt shows the current folder, the Git branch and a chevron. The chevron turns amber when a command fails. A detached checkout shows its short commit ID. Minterm reads Git’s HEAD file to build the prompt. To keep your existing prompt, launch Minterm with `MINTERM_PROMPT=0`. Other shells keep their own prompt. The active terminal tab shows a shortened preview of the latest command from zsh or Bash. Bash updates the title when its prompt returns and uses commands recorded in history.
 
 In zsh 5.9 or later, the first suggestion appears in gray as you type. Right Arrow accepts it at the end of the line. Matches come from recent shell history and command names. Tab keeps your usual completion. In Bash, Shift-Tab cycles through Readline’s completions when that binding is available. Set `MINTERM_AUTOSUGGEST=0` to disable Minterm’s suggestions.
 
