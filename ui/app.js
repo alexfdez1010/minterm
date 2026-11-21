@@ -1,6 +1,9 @@
 import { $, agentLabel, element, icon, send } from "./shared.js";
 import { setAgentChoices } from "./agents.js";
-import { initInspector, refreshInspector, receiveServices, receiveAgents } from "./inspector.js";
+import {
+  initInspector, refreshInspector, receiveServices, receiveAgents,
+  inspectorState, restoreInspector, stopListener, listenerStopped,
+} from "./inspector.js";
 import { Activity } from "./activity.js";
 import { theme, terminalFont, defaultFontSize, loadTerminalFonts } from "./theme.js";
 import { CommandMode } from "./command.js";
@@ -14,7 +17,7 @@ let active,
   startPath,
   fontSize = defaultFontSize;
 let panel = window.innerWidth > 770 ? "inspector" : null;
-let contextTimer, noticeTimer, confirmation, previousPanel;
+let contextTimer, noticeTimer, confirmation, previousPanel, savedInspector;
 const currentTab = () => tabs.get(active);
 const visibleSession = (tab) => (tab?.mode === "agent" ? tab.companion : tab?.base);
 const current = () => visibleSession(currentTab());
@@ -282,14 +285,30 @@ function changeTab(direction) {
   const ids = [...tabs.keys()];
   if (ids.length) selectTab(ids[(ids.indexOf(active) + direction + ids.length) % ids.length]);
 }
+function saveInspector() {
+  if (savedInspector === undefined) return;
+  const state = inspectorState(panel === "inspector");
+  const serialized = JSON.stringify(state);
+  if (serialized === savedInspector) return;
+  savedInspector = serialized;
+  send("saveInspector", { state });
+}
 function setPanel(next, toggle = true) {
   panel = toggle && next === panel ? null : next;
   $("sidebar").hidden = !panel;
   $("inspect-panel").hidden = panel !== "inspector";
   $("inspector-toggle").setAttribute("aria-pressed", String(panel === "inspector"));
+  saveInspector();
   if (panel === "inspector") refreshInspector();
   focusSession();
   fitActive();
+}
+function confirmStop(listener) {
+  confirmation = listener;
+  $("confirm-title").textContent = `Stop ${listener.process}?`;
+  $("confirm-body").textContent = `This will force quit PID ${listener.pid}, which is listening on port ${listener.port}.`;
+  $("confirm-close").textContent = "Stop process";
+  $("confirm").showModal();
 }
 function showConfirmation({ id }) {
   confirmation = id ?? "window";
@@ -374,6 +393,10 @@ window.minterm = {
       case "ready":
         startPath = data.path;
         applyAgentPreferences(data.preferences);
+        const state = data.preferences.inspector;
+        restoreInspector(state ?? {});
+        if (state?.visible != null) panel = state.visible ? "inspector" : null;
+        savedInspector = JSON.stringify(inspectorState(panel === "inspector"));
         newTab();
         setPanel(panel, false);
         break;
@@ -440,6 +463,10 @@ window.minterm = {
       case "services":
         receiveServices(data);
         break;
+      case "listenerStopped":
+        listenerStopped();
+        if (data) notice(data);
+        break;
       case "agents":
         activity.scan(data);
         break;
@@ -498,7 +525,8 @@ $("confirm").onclose = () => focusSession();
 $("confirm-close").onclick = () => {
   $("confirm").close();
   if (confirmation === "window") send("quit", { force: true });
-  else send("close", { id: confirmation, force: true });
+  else if (typeof confirmation === "number") send("close", { id: confirmation, force: true });
+  else stopListener(confirmation);
 };
 initInspector(
   (id) => {
@@ -519,6 +547,8 @@ initInspector(
   },
   () => commandMode.agent,
   () => commandMode.refresh(),
+  saveInspector,
+  confirmStop,
 );
 $("titlebar").addEventListener("mousedown", (e) => {
   if (e.button === 0 && !e.target.closest("button, summary, .tab")) send("drag");

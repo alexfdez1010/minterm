@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
 use std::io::{self, Read};
@@ -18,7 +18,7 @@ pub struct GitInfo {
     pub detached: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Port {
     pub port: u16,
     pub process: String,
@@ -271,6 +271,34 @@ fn listeners() -> Result<Vec<Port>, String> {
     }
 }
 
+pub fn stop_listener(target: &Port) -> Result<(), String> {
+    let pid = i32::try_from(target.pid)
+        .ok()
+        .filter(|pid| *pid > 1 && *pid as u32 != std::process::id())
+        .ok_or("This process cannot be stopped.")?;
+    let still_listening = listeners()?.iter().any(|port| {
+        port.pid == target.pid
+            && port.port == target.port
+            && port.address == target.address
+            && port.process == target.process
+    });
+    if !still_listening {
+        return Err(format!(
+            "{} is no longer listening on port {}.",
+            target.process, target.port
+        ));
+    }
+    // SAFETY: a positive PID targets one process, never a process group.
+    if unsafe { libc::kill(pid, libc::SIGKILL) } != 0 {
+        return Err(format!(
+            "Could not stop {}. {}",
+            target.process,
+            io::Error::last_os_error()
+        ));
+    }
+    Ok(())
+}
+
 fn docker_binary() -> Option<PathBuf> {
     // Finder launches with a shorter PATH than an interactive shell.
     let search = env::var_os("PATH").unwrap_or_default();
@@ -499,6 +527,45 @@ pub fn services() -> Services {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stop_listener_rechecks_the_port_before_killing_a_process() {
+        // The child opens a disposable TCP socket. Reap it even on assertion failure.
+        struct Child(std::process::Child);
+        impl Drop for Child {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+
+        let child = Command::new("/usr/bin/nc")
+            .args(["-l", "127.0.0.1", "0"])
+            .stdin(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut child = Child(child);
+        let pid = child.0.id();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let mut port = loop {
+            if let Some(port) = listeners()
+                .unwrap()
+                .into_iter()
+                .find(|port| port.pid == pid)
+            {
+                break port;
+            }
+            assert!(Instant::now() < deadline, "nc did not start listening");
+        };
+
+        let actual_port = port.port;
+        port.port = 0;
+        assert!(stop_listener(&port).is_err());
+        assert!(child.0.try_wait().unwrap().is_none());
+        port.port = actual_port;
+        stop_listener(&port).unwrap();
+        assert!(!child.0.wait().unwrap().success());
+    }
 
     #[test]
     fn listeners_prioritize_known_ports_and_preserve_bind_addresses() {

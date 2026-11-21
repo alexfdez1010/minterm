@@ -17,12 +17,33 @@ pub struct Preferences {
     pub agent_commands_error: Option<String>,
     pub shortcut: String,
     pub new_tab_mode: String,
+    pub inspector: InspectorPreferences,
     #[serde(skip_serializing)]
     codex_path: String,
     #[serde(skip_serializing)]
     claude_path: String,
     #[serde(skip_serializing)]
     opencode_path: String,
+}
+
+#[derive(Default, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct InspectorPreferences {
+    pub visible: Option<bool>,
+    pub agents_open: Option<bool>,
+    pub ports_open: Option<bool>,
+    pub show_all: Option<bool>,
+}
+
+impl InspectorPreferences {
+    pub fn save(self) -> Result<(), String> {
+        let path = path().ok_or("Could not locate the preferences folder.")?;
+        save_at(
+            &path,
+            "inspector",
+            serde_json::to_value(self).map_err(|e| e.to_string())?,
+        )
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
@@ -73,6 +94,7 @@ impl Default for Preferences {
             agent_commands_error: None,
             shortcut: "⌘K".into(),
             new_tab_mode: "terminal".into(),
+            inspector: InspectorPreferences::default(),
             codex_path: String::new(),
             claude_path: String::new(),
             opencode_path: String::new(),
@@ -195,7 +217,10 @@ pub fn update(field: &str, value: &str) -> Result<(), String> {
 }
 
 fn update_at(path: &Path, field: &str, value: &str) -> Result<(), String> {
-    let value = validated_value(field, value)?;
+    save_at(path, field, validated_value(field, value)?.into())
+}
+
+fn save_at(path: &Path, field: &str, value: serde_json::Value) -> Result<(), String> {
     let dir = path.parent().unwrap();
     let error = |e: std::io::Error| format!("Could not save preferences. {e}");
     fs::create_dir_all(dir).map_err(error)?;
@@ -214,7 +239,7 @@ fn update_at(path: &Path, field: &str, value: &str) -> Result<(), String> {
         Err(e) => return Err(error(e)),
     };
     migrate(&mut saved);
-    saved.insert(field.into(), value.into());
+    saved.insert(field.into(), value);
     let mut temp = tempfile::NamedTempFile::new_in(dir).map_err(error)?;
     serde_json::to_writer_pretty(&mut temp, &saved).map_err(|e| e.to_string())?;
     temp.flush().map_err(error)?;
@@ -225,6 +250,20 @@ fn update_at(path: &Path, field: &str, value: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inspector_state_survives_other_preference_updates() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("prefs.json");
+        let state = serde_json::json!({
+            "visible": false, "agentsOpen": false, "portsOpen": true, "showAll": true,
+        });
+        save_at(&path, "inspector", state.clone()).unwrap();
+        update_at(&path, "newTabMode", "agent").unwrap();
+        let prefs = load(&fs::read(path).unwrap()).unwrap();
+        assert_eq!(serde_json::to_value(prefs.inspector).unwrap(), state);
+        assert_eq!(prefs.new_tab_mode, "agent");
+    }
 
     #[test]
     fn command_settings_validate_shortcuts() {

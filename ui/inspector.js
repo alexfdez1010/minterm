@@ -1,25 +1,43 @@
-import { $, element, send } from "./shared.js";
+import { $, element, icon, send } from "./shared.js";
 import { initAgents, renderAgents } from "./agents.js";
 
+let confirmListener;
 let services,
   showAll = false,
   scanPending = false,
+  rescan = false,
+  stopping = false,
   agentsPending = false,
   lastScan = 0;
-export function initInspector(select, label, launch, preferredAgent, refreshPreferences) {
+export function inspectorState(visible) {
+  return { visible, agentsOpen: $("agent-section").open, portsOpen: $("port-section").open, showAll };
+}
+
+export function restoreInspector(state) {
+  $("agent-section").open = state.agentsOpen ?? true;
+  $("port-section").open = state.portsOpen ?? false;
+  showAll = state.showAll ?? false;
+  renderServices();
+}
+
+export function initInspector(select, label, launch, preferredAgent, refreshPreferences, save, confirmStop) {
+  confirmListener = confirmStop;
   initAgents(select, label, launch, preferredAgent, refreshPreferences);
   for (const section of document.querySelectorAll("#inspect-panel details")) {
     section.addEventListener("toggle", () => {
+      save();
       if (section.open && !$("sidebar").hidden && !$("inspect-panel").hidden) refreshInspector();
     });
   }
   $("refresh").onclick = () => refreshInspector(true);
   $("dev-filter").onclick = () => {
     showAll = false;
+    save();
     renderServices();
   };
   $("all-filter").onclick = () => {
     showAll = true;
+    save();
     renderServices();
   };
 }
@@ -37,7 +55,24 @@ export function receiveServices(payload) {
   lastScan = Date.now();
   $("refresh").disabled = false;
   renderServices();
+  if (rescan) {
+    rescan = false;
+    scan();
+  }
 }
+
+export function stopListener(listener) {
+  stopping = true;
+  $("ports").querySelectorAll("button").forEach((button) => { button.disabled = true; });
+  send("stopListener", { listener });
+}
+
+export function listenerStopped() {
+  stopping = false;
+  if (scanPending) rescan = true;
+  else scan();
+}
+
 export function receiveAgents(agents) {
   agentsPending = false;
   renderAgents(agents);
@@ -49,10 +84,10 @@ function scan() {
   send("services");
 }
 function renderServices() {
-  if (!services) return;
-  const entries = services.entries.filter((entry) => showAll || entry.kind);
   $("dev-filter").setAttribute("aria-pressed", String(!showAll));
   $("all-filter").setAttribute("aria-pressed", String(showAll));
+  if (!services) return;
+  const entries = services.entries.filter((entry) => showAll || entry.kind);
   $("port-count").textContent = String(entries.length);
   $("ports").replaceChildren(...entries.map(serviceRow));
   const errors = [services.portsError, services.dockerError].filter(Boolean);
@@ -81,6 +116,14 @@ function serviceRow(entry) {
       element("span", "service-name", entry.process),
       element("span", "service-detail", details),
     );
+    const close = element("button", "icon port-close");
+    close.type = "button";
+    close.title = `Stop ${entry.process} on port ${entry.port}`;
+    close.setAttribute("aria-label", close.title);
+    close.disabled = stopping;
+    close.append(icon("close"));
+    close.onclick = () => confirmListener(entry);
+    row.append(close);
     row.title = entry.address + ":" + entry.port + "  |  " + entry.process + "  |  " + details;
   }
   return row;

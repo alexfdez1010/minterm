@@ -63,6 +63,12 @@ pub enum Action {
         id: u32,
     },
     Services,
+    StopListener {
+        listener: inspect::Port,
+    },
+    SaveInspector {
+        state: crate::preferences::InspectorPreferences,
+    },
     Agents,
     Drag,
 }
@@ -74,6 +80,7 @@ pub enum Message {
     Menu(String),
     Context(u32, Value),
     Services(Value),
+    ListenerStopped(Option<String>),
     Agents(Value),
 }
 
@@ -92,6 +99,7 @@ pub struct App {
     contexts: HashSet<u32>,
     last_dirs: HashMap<u32, PathBuf>,
     scanning_services: bool,
+    stopping_listener: bool,
     scanning_agents: bool,
     quitting: bool,
 }
@@ -111,6 +119,7 @@ impl App {
             contexts: HashSet::new(),
             last_dirs: HashMap::new(),
             scanning_services: false,
+            stopping_listener: false,
             scanning_agents: false,
             quitting: false,
         }
@@ -239,6 +248,17 @@ impl App {
                     });
                 }
             }
+            Action::SaveInspector { state } => {
+                if let Err(error) = state.save() {
+                    self.emit("notice", json!(error));
+                }
+            }
+            Action::StopListener { listener } if !self.stopping_listener => {
+                self.stopping_listener = true;
+                self.worker(move || {
+                    Message::ListenerStopped(inspect::stop_listener(&listener).err())
+                });
+            }
             Action::Services if !self.scanning_services => {
                 self.scanning_services = true;
                 self.worker(|| Message::Services(json!(inspect::services())));
@@ -248,7 +268,7 @@ impl App {
                 let shells = self.sessions.shell_pids();
                 self.worker(move || Message::Agents(json!(agents::discover(&shells))));
             }
-            Action::Drag | Action::Services | Action::Agents => {}
+            Action::Drag | Action::Services | Action::StopListener { .. } | Action::Agents => {}
         }
     }
 
@@ -305,6 +325,10 @@ impl App {
                 self.scanning_services = false;
                 self.emit("services", value);
             }
+            Message::ListenerStopped(error) => {
+                self.stopping_listener = false;
+                self.emit("listenerStopped", json!(error));
+            }
             Message::Agents(value) => {
                 self.scanning_agents = false;
                 self.emit("agents", value);
@@ -325,7 +349,8 @@ fn ui_preferences() -> Value {
         "agentCommands": commands,
         "agentCommandsError": prefs.agent_commands_error,
         "shortcut": prefs.shortcut,
-        "newTabMode": prefs.new_tab_mode
+        "newTabMode": prefs.new_tab_mode,
+        "inspector": prefs.inspector
     })
 }
 
