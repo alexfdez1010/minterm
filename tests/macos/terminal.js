@@ -269,7 +269,11 @@ try {
   await expect('Command-W on the live agent asks before closing', () =>
     confirm.open && close.textContent === 'Close tab' && document.activeElement === $('#cancel'));
   verifyCloseContrast(confirm, close);
-  $('#cancel').click();
+  await key(124, '\uf703');
+  await expect('Right Arrow focuses Close Tab', () => document.activeElement === close);
+  await key(123, '\uf702');
+  await expect('Left Arrow focuses Cancel', () => document.activeElement === $('#cancel'));
+  await key(36, '\r');
   await expect('Cancel keeps the running session selected', () => !confirm.open && selected() === launchedTab);
   await key(28, '8', command);
   await expect('Source shell stays available during the run', () => selected() === sourceTab);
@@ -285,6 +289,18 @@ try {
   await expect('Closing the run returns to the source shell', () =>
     tabs().length === beforeLaunch && selected() === sourceTab &&
     document.activeElement === $('.terminal-page.selected textarea.xterm-helper-textarea'));
+  await key(17, 't', command);
+  await expect('Disposable shell tab opens', () =>
+    tabs().length === beforeLaunch + 1 && surface()?.dataset.state === 'live');
+  const busyTab = selected(), busyShell = activeTerminal();
+  await enter("printf 'running\\n'; /bin/sleep 60");
+  await expect('The disposable shell is running a command', () => rows(busyShell).includes('running'));
+  await key(13, 'w', command);
+  await expect('First Command-W asks before closing a busy shell', () =>
+    confirm.open && selected() === busyTab && document.activeElement === $('#cancel'));
+  await key(13, 'w', command);
+  await expect('Second Command-W closes only the confirmed tab', () =>
+    !confirm.open && tabs().length === beforeLaunch && !busyTab.isConnected && selected() === sourceTab);
   const sourceTerminal = activeTerminal();
   await enter('cd "$HOME/command-target" && printf "%s\\n" one two three four');
   await expect('Source shell changed into a different repository', () =>

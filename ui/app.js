@@ -344,7 +344,10 @@ function showConfirmation({ id }) {
 function command(name) {
   const dialog = document.querySelector("dialog[open]");
   if (dialog) {
-    if (name === "close") dialog.close();
+    if (name === "close") {
+      if (dialog === $("confirm") && typeof confirmation === "number") acceptConfirmation();
+      else dialog.close();
+    }
     return;
   }
   switch (name) {
@@ -543,12 +546,13 @@ $("inspector-toggle").onclick = () => setPanel("inspector");
 $("command-toggle").onclick = () => command("commandMode");
 $("cancel").onclick = () => $("confirm").close();
 $("confirm").onclose = () => focusSession();
-$("confirm-close").onclick = () => {
+function acceptConfirmation() {
   $("confirm").close();
   if (confirmation === "window") send("quit", { force: true });
   else if (typeof confirmation === "number") send("close", { id: confirmation, force: true });
   else stopListener(confirmation);
-};
+}
+$("confirm-close").onclick = acceptConfirmation;
 initInspector(
   (id) => {
     const session = sessions.get(id);
@@ -577,7 +581,30 @@ $("titlebar").addEventListener("mousedown", (e) => {
 document.addEventListener(
   "keydown",
   (e) => {
-    if (document.querySelector("dialog[open]") || e.isComposing) return;
+    if (e.isComposing) return;
+    if ($("confirm").open) {
+      switch (e.key) {
+        case "ArrowLeft":
+        case "ArrowUp":
+          e.preventDefault();
+          $("cancel").focus();
+          break;
+        case "ArrowRight":
+        case "ArrowDown":
+          e.preventDefault();
+          $("confirm-close").focus();
+          break;
+        case "w":
+        case "W":
+          if (e.metaKey && !e.altKey && !e.ctrlKey && !e.shiftKey) {
+            e.preventDefault();
+            if (!e.repeat) command("close");
+          }
+          break;
+      }
+      return;
+    }
+    if (document.querySelector("dialog[open]")) return;
     if (e.metaKey && !e.altKey && !e.shiftKey && ["t", "w"].includes(e.key.toLowerCase())) {
       e.preventDefault();
       if (!e.repeat) command(e.key.toLowerCase() === "t" ? "new" : "close");
