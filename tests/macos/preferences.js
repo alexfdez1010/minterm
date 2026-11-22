@@ -27,7 +27,7 @@ async function verifyPreferences() {
     code, letter, modifiers, ...options,
     text: modifiers === control ? String.fromCharCode(letter.toUpperCase().charCodeAt(0) & 31) : letter,
   });
-  const defaults = {mode: 'Terminal', shortcut: '⌘K'};
+  const defaults = {mode: 'Terminal', shortcut: '⌘K', splitShortcut: '⌘L'};
   const option = 1 << 19;
   await settings('prepare');
   await open();
@@ -126,12 +126,32 @@ async function verifyPreferences() {
   await state({shortcut: 'Press ⌘ and a letter'});
   await recordKey(17, 't', command);
   await state({shortcut: 'Shortcut in use. Try another.'});
+  await recordKey(37, 'l', command);
+  await state({shortcut: 'Shortcut in use. Try another.', splitShortcut: '⌘L'});
+  await settings('recordSplit');
+  await state({shortcut: '⌘K', splitShortcut: 'Press ⌘ and a letter'});
+  await recordKey(40, 'k', command);
+  await state({splitShortcut: 'Shortcut in use. Try another.'});
+  await recordKey(53, '\x1b');
+  await state({splitShortcut: '⌘L'});
+  await settings('recordSplit');
+  await recordKey(38, 'j', command);
+  await state({splitShortcut: '⌘J'});
+  await settings('record');
   await recordKey(16, 'y', command | option);
-  const changed = {mode: 'Agent', shortcut: '⌥⌘Y'};
+  const changed = {mode: 'Agent', shortcut: '⌥⌘Y', splitShortcut: '⌘J'};
   await state(changed);
   await settings('close');
   await expect('New tab and mode toggle reflect saved settings', () =>
     $('#new-tab').getAttribute('aria-label') === 'New agent tab' && $('#command-toggle').title.includes('⌥⌘Y'));
+  await expect('Split View button reflects its new shortcut', () =>
+    $('#panes-toggle').title.includes('⌘J') && $('#panes-toggle').getAttribute('aria-keyshortcuts') === 'Meta+J');
+  if (await key(37, 'l', command)) throw new Error('Previous Split View shortcut still owns Command-L');
+  if (!await key(38, 'j', command)) throw new Error('View menu did not receive Command-J');
+  await expect('Recorded shortcut enters Split View', () => panes().length === tabs().length && panes().length > 1);
+  await key(38, 'j', command);
+  await expect('Recorded shortcut returns focus to the selected tab', () =>
+    panes().length === 1 && document.activeElement === focusedTerminal());
   $('#start-agent').click();
   await expect('Inspector launcher follows the custom default', () =>
     $('#agent-launch').open && $('#agent-launch-form').elements.agent.value === renamed.name);
@@ -171,6 +191,9 @@ async function verifyPreferences() {
   await settings('mode', {value: 'Terminal'});
   await settings('record');
   await recordKey(40, 'k', command);
+  await state({shortcut: '⌘K'});
+  await settings('recordSplit');
+  await recordKey(37, 'l', command);
   await state(defaults);
   await settings('close');
   await expect('Original tab defaults and menu shortcut restored', () =>

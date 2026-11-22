@@ -46,7 +46,7 @@ static BOOL shortcutTaken(NSMenu *menu, NSString *letter, NSEventModifierFlags f
     MTChangePreference _change;
     NSMutableDictionary *_values;
     NSPopUpButton *_mode;
-    NSButton *_shortcut;
+    NSButton *_modeShortcut, *_splitShortcut, *_recordingButton;
     id _monitor;
     MTAgentCommands *_commands;
 }
@@ -58,12 +58,12 @@ static BOOL shortcutTaken(NSMenu *menu, NSString *letter, NSEventModifierFlags f
     _mode.target = self;
     _mode.action = @selector(modeChanged:);
     _mode.accessibilityLabel = @"New tabs";
-    _shortcut = [NSButton buttonWithTitle:@"" target:self action:@selector(record:)];
-    _shortcut.accessibilityLabel = @"Record switch mode shortcut";
-    _shortcut.toolTip = @"Record a Command shortcut";
+    _modeShortcut = [self shortcutButton:@"shortcut" label:@"Record switch mode shortcut"];
+    _splitShortcut = [self shortcutButton:@"splitShortcut" label:@"Record Split View shortcut"];
     _generalView = form(@[
         @[[NSTextField labelWithString:@"New tabs"], _mode],
-        @[[NSTextField labelWithString:@"Switch mode"], _shortcut],
+        @[[NSTextField labelWithString:@"Switch mode"], _modeShortcut],
+        @[[NSTextField labelWithString:@"Toggle Split View"], _splitShortcut],
     ]);
 
     _commands = [[MTAgentCommands alloc] initWithChange:change];
@@ -72,12 +72,21 @@ static BOOL shortcutTaken(NSMenu *menu, NSString *letter, NSEventModifierFlags f
     return self;
 }
 
+- (NSButton *)shortcutButton:(NSString *)field label:(NSString *)label {
+    NSButton *button = [NSButton buttonWithTitle:@"" target:self action:@selector(record:)];
+    button.identifier = field;
+    button.accessibilityLabel = label;
+    button.toolTip = @"Record a Command shortcut";
+    return button;
+}
+
 - (void)reload:(NSDictionary *)values {
     [self stopRecording];
     _values = [values mutableCopy];
     [_mode selectItemAtIndex:[values[@"newTabMode"] isEqual:@"agent"] ? 1 : 0];
     [self reloadCommands:values];
-    _shortcut.title = values[@"shortcut"];
+    _modeShortcut.title = values[_modeShortcut.identifier];
+    _splitShortcut.title = values[_splitShortcut.identifier];
 }
 
 - (void)reloadCommands:(NSDictionary *)values {
@@ -108,11 +117,15 @@ static BOOL shortcutTaken(NSMenu *menu, NSString *letter, NSEventModifierFlags f
 - (void)stopRecording {
     if (_monitor) [NSEvent removeMonitor:_monitor];
     _monitor = nil;
-    _shortcut.title = _values[@"shortcut"] ?: @"";
+    if (_recordingButton) _recordingButton.title = _values[_recordingButton.identifier] ?: @"";
+    _recordingButton = nil;
 }
-- (void)record:(id)sender {
-    if (_monitor) { [self stopRecording]; return; }
-    _shortcut.title = @"Press ⌘ and a letter";
+- (void)record:(NSButton *)sender {
+    BOOL alreadyRecording = _recordingButton == sender;
+    [self stopRecording];
+    if (alreadyRecording) return;
+    _recordingButton = sender;
+    sender.title = @"Press ⌘ and a letter";
     __weak MTPreferencesPane *weakSelf = self;
     _monitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:^NSEvent *(NSEvent *event) {
         MTPreferencesPane *pane = weakSelf;
@@ -125,11 +138,13 @@ static BOOL shortcutTaken(NSMenu *menu, NSString *letter, NSEventModifierFlags f
                 [letter characterAtIndex:0] < 'a' || [letter characterAtIndex:0] > 'z') { NSBeep(); return nil; }
         NSString *key = [NSString stringWithFormat:@"%@%@%@⌘%@", flags & NSEventModifierFlagControl ? @"⌃" : @"",
             flags & NSEventModifierFlagOption ? @"⌥" : @"", flags & NSEventModifierFlagShift ? @"⇧" : @"", letter.uppercaseString];
-        if (![pane->_values[@"shortcut"] isEqual:key] && shortcutTaken(NSApp.mainMenu,letter,flags)) {
-            pane->_shortcut.title = @"Shortcut in use. Try another.";
+        NSButton *button = pane->_recordingButton;
+        NSString *field = button.identifier;
+        if (![pane->_values[field] isEqual:key] && shortcutTaken(NSApp.mainMenu, letter, flags)) {
+            button.title = @"Shortcut in use. Try another.";
             return nil;
         }
-        [pane save:key field:@"shortcut"];
+        [pane save:key field:field];
         [pane stopRecording];
         return nil;
     }];

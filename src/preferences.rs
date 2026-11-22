@@ -16,6 +16,7 @@ pub struct Preferences {
     #[serde(skip_deserializing)]
     pub agent_commands_error: Option<String>,
     pub shortcut: String,
+    pub split_shortcut: String,
     pub new_tab_mode: String,
     pub inspector: InspectorPreferences,
     #[serde(skip_serializing)]
@@ -93,6 +94,7 @@ impl Default for Preferences {
             agent_commands: Vec::new(),
             agent_commands_error: None,
             shortcut: "⌘K".into(),
+            split_shortcut: "⌘L".into(),
             new_tab_mode: "terminal".into(),
             inspector: InspectorPreferences::default(),
             codex_path: String::new(),
@@ -122,7 +124,7 @@ fn validated_value<'a>(field: &str, value: &'a str) -> Result<&'a str, String> {
     let value = value.trim();
     match field {
         "newTabMode" if matches!(value, "terminal" | "agent") => Ok(value),
-        "shortcut" if accelerator(value).is_some() => Ok(value),
+        "shortcut" | "splitShortcut" if accelerator(value).is_some() => Ok(value),
         _ => Err("This setting is invalid.".into()),
     }
 }
@@ -178,18 +180,21 @@ pub fn read() -> Preferences {
 }
 
 fn migrate(saved: &mut serde_json::Map<String, serde_json::Value>) {
-    if saved.contains_key("formatVersion") {
-        return;
+    if !saved.contains_key("formatVersion") {
+        // Unversioned files stored every default. A recorded ⇧⌘K was identical
+        // to the old default. Both adopt ⌘K once, then explicit choices persist.
+        if saved.get("shortcut").and_then(|v| v.as_str()) == Some("⇧⌘K") {
+            saved.remove("shortcut");
+        }
+        if saved.get("agent").and_then(|v| v.as_str()) == Some("codex-ollama") {
+            saved.insert("agent".into(), "codex".into());
+        }
+        saved.insert("formatVersion".into(), 1.into());
     }
-    // Unversioned files stored every default. A recorded ⇧⌘K was identical
-    // to the old default. Both adopt ⌘K once, then explicit choices persist.
-    if saved.get("shortcut").and_then(|v| v.as_str()) == Some("⇧⌘K") {
-        saved.remove("shortcut");
+    // Keep an existing ⌘L mode binding when adding the Split View shortcut.
+    if saved.get("shortcut").and_then(|v| v.as_str()) == Some("⌘L") {
+        saved.entry("splitShortcut").or_insert_with(|| "⇧⌘L".into());
     }
-    if saved.get("agent").and_then(|v| v.as_str()) == Some("codex-ollama") {
-        saved.insert("agent".into(), "codex".into());
-    }
-    saved.insert("formatVersion".into(), 1.into());
 }
 
 fn load(bytes: &[u8]) -> Result<Preferences, serde_json::Error> {
@@ -273,6 +278,25 @@ mod tests {
         for shortcut in ["K", "⇧K", "⌘1", "⌘⇧K", "⌘Delete"] {
             assert!(accelerator(shortcut).is_none());
         }
+    }
+
+    #[test]
+    fn split_shortcut_preserves_existing_mode_bindings_on_upgrade() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("prefs.json");
+        let read = || load(&fs::read(&path).unwrap()).unwrap();
+
+        assert_eq!(load(b"{}").unwrap().split_shortcut, "⌘L");
+        fs::write(&path, r#"{"formatVersion":1,"shortcut":"⌘L"}"#).unwrap();
+        assert_eq!(read().shortcut, "⌘L");
+        assert_eq!(read().split_shortcut, "⇧⌘L");
+
+        update_at(&path, "shortcut", "⌘K").unwrap();
+        assert_eq!(read().split_shortcut, "⇧⌘L");
+        assert!(update_at(&path, "splitShortcut", "L").is_err());
+        update_at(&path, "splitShortcut", "⌥⌘L").unwrap();
+        assert_eq!(read().split_shortcut, "⌥⌘L");
+        assert_eq!(read().shortcut, "⌘K");
     }
 
     #[test]

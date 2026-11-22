@@ -21,6 +21,7 @@ let active,
   fontSize = defaultFontSize;
 let panel = inspectorOverlays.matches ? null : "inspector";
 let split = false;
+let splitShortcut = "";
 let contextTimer, noticeTimer, confirmation, previousPanel, savedInspector;
 const currentTab = () => tabs.get(active);
 const visibleSession = (tab) => (tab?.mode === "agent" ? tab.companion : tab?.base);
@@ -110,14 +111,22 @@ function renderTab(tab) {
   tab.button.tabIndex = selected ? 0 : -1;
   updateSessionState(tab);
 }
+function updatePanesToggle() {
+  panesToggle.disabled = !split && tabs.size < 2;
+  panesToggle.setAttribute("aria-pressed", String(split));
+  const action = split ? "Return to Tab View" : "Show terminals in Split View";
+  panesToggle.title = panesToggle.disabled ? "Open another tab to use Split View" :
+    splitShortcut ? action + " (" + splitShortcut + ")" : action;
+  if (splitShortcut) {
+    panesToggle.setAttribute("aria-keyshortcuts", splitShortcut
+      .replace("⌃", "Control+").replace("⌥", "Alt+").replace("⇧", "Shift+").replace("⌘", "Meta+"));
+  } else panesToggle.removeAttribute("aria-keyshortcuts");
+}
 function layoutPanes() {
   const count = tabs.size;
   const tiled = split && count > 1;
   terminals.classList.toggle("tiled", tiled);
-  panesToggle.disabled = !split && count < 2;
-  panesToggle.setAttribute("aria-pressed", String(split));
-  panesToggle.title = split ? "Return to Tab View" :
-    count < 2 ? "Open another tab to use Split View" : "Show terminals in Split View";
+  updatePanesToggle();
   if (!tiled) return;
 
   // Use equal-height rows and distribute the space across the panes in each row.
@@ -497,9 +506,11 @@ function command(name) {
       break;
   }
 }
-function applyAgentPreferences(prefs) {
+function applyPreferences(prefs) {
   commandMode.preferences(prefs);
   setAgentChoices(prefs?.agentCommands || [], commandMode.agent, commandMode.error);
+  splitShortcut = prefs?.splitShortcut || "";
+  updatePanesToggle();
 }
 window.minterm = {
   receive(name, data) {
@@ -508,7 +519,7 @@ window.minterm = {
     switch (name) {
       case "ready":
         startPath = data.path;
-        applyAgentPreferences(data.preferences);
+        applyPreferences(data.preferences);
         const state = data.preferences.inspector;
         restoreInspector(state ?? {});
         if (state?.visible != null) panel = state.visible ? "inspector" : null;
@@ -590,7 +601,7 @@ window.minterm = {
         command(data);
         break;
       case "preferences":
-        applyAgentPreferences(data);
+        applyPreferences(data);
         break;
       case "confirm":
         showConfirmation(data);

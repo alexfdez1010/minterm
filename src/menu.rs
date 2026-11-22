@@ -1,7 +1,7 @@
 use muda::accelerator::{Accelerator, Code, Key, KeyAccelerator, Modifiers};
 use muda::{Menu, MenuItem, PredefinedMenuItem as Native, Submenu};
 
-pub fn install() -> muda::Result<(Menu, MenuItem)> {
+pub fn install() -> muda::Result<(Menu, MenuItem, MenuItem)> {
     let cmd = Modifiers::META;
     let item = |id, name, modifiers, key| {
         MenuItem::with_id(id, name, true, Some(Accelerator::new(modifiers, key)))
@@ -17,9 +17,10 @@ pub fn install() -> muda::Result<(Menu, MenuItem)> {
         ],
     )?;
     let switch_mode = MenuItem::with_id("commandMode", "Switch Terminal / Agent Mode", true, None);
-    switch_mode.set_key_accelerator(crate::preferences::accelerator(
-        &crate::preferences::read().shortcut,
-    ))?;
+    let panes = MenuItem::with_id("panes", "Toggle Split View", true, None);
+    let prefs = crate::preferences::read_general();
+    switch_mode.set_key_accelerator(crate::preferences::accelerator(&prefs.shortcut))?;
+    panes.set_key_accelerator(crate::preferences::accelerator(&prefs.split_shortcut))?;
     let shell = Submenu::with_items(
         "Shell",
         true,
@@ -74,7 +75,7 @@ pub fn install() -> muda::Result<(Menu, MenuItem)> {
                 Code::Enter,
             ),
             &item("inspector", "Local Inspector", cmd, Code::KeyI),
-            &MenuItem::with_id("panes", "Toggle Split View", true, None),
+            &panes,
             &larger,
             &item("smaller", "Decrease Terminal Text", cmd, Code::Minus),
             &item("reset-size", "Actual Text Size", cmd, Code::Digit0),
@@ -88,5 +89,5 @@ pub fn install() -> muda::Result<(Menu, MenuItem)> {
     )?;
     let menu = Menu::with_items(&[&app, &shell, &edit, &view, &window])?;
     menu.init_for_nsapp();
-    Ok((menu, switch_mode))
+    Ok((menu, switch_mode, panes))
 }

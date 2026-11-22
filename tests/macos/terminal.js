@@ -186,7 +186,9 @@ try {
       first.closest('.tab').click();
       await expect('A click on the tab row selects and focuses it', () =>
         selected() === first && document.activeElement === focusedTerminal());
-      $('#panes-toggle').click();
+      await expect('Split View button advertises Command-L', () =>
+        $('#panes-toggle').title.includes('⌘L') && $('#panes-toggle').getAttribute('aria-keyshortcuts') === 'Meta+L');
+      if (!await key(37, 'l', command)) throw new Error('View menu did not receive Command-L');
       await expect('Two live terminals sit side by side', () => {
         const [left, right] = geometry();
         return panes().length === 2 && aligned(left.top, right.top) &&

@@ -161,7 +161,8 @@ static void qa_preferences(NSWindow *terminal, NSDictionary *request, void (^rep
     }
     NSPopUpButton *mode = (NSPopUpButton *)qa_setting(window.contentView, @"New tabs");
     NSButton *shortcut = (NSButton *)qa_setting(window.contentView, @"Record switch mode shortcut");
-    if (!mode || !shortcut) {
+    NSButton *splitShortcut = (NSButton *)qa_setting(window.contentView, @"Record Split View shortcut");
+    if (!mode || !shortcut || !splitShortcut) {
         reply(nil, @"General pane is missing a control");
         return;
     }
@@ -170,7 +171,8 @@ static void qa_preferences(NSWindow *terminal, NSDictionary *request, void (^rep
         CGFloat x = MIN(MAX(NSMidX(terminal.frame) - NSWidth(window.frame)/2, NSMinX(available)), NSMaxX(available) - NSWidth(window.frame));
         CGFloat y = MIN(MAX(NSMidY(terminal.frame) - NSHeight(window.frame)/2, NSMinY(available)), NSMaxY(available) - NSHeight(window.frame));
         BOOL centered = fabs(NSMinX(window.frame) - x) <= 1 && fabs(NSMinY(window.frame) - y) <= 1;
-        reply(@{@"mode": mode.titleOfSelectedItem, @"shortcut": shortcut.title, @"centered": @(centered),
+        reply(@{@"mode": mode.titleOfSelectedItem, @"shortcut": shortcut.title,
+                @"splitShortcut": splitShortcut.title, @"centered": @(centered),
                 @"panes": [panes.tabViewItems valueForKey:@"label"]}, nil);
         return;
     }
@@ -181,6 +183,8 @@ static void qa_preferences(NSWindow *terminal, NSDictionary *request, void (^rep
         [mode sendAction:mode.action to:mode.target];
     } else if ([action isEqual:@"record"]) {
         [shortcut performClick:nil];
+    } else if ([action isEqual:@"recordSplit"]) {
+        [splitShortcut performClick:nil];
     } else if ([action isEqual:@"key"]) {
         qa_setting_key(window, request);
     } else {

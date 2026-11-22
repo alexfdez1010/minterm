@@ -349,6 +349,7 @@ fn ui_preferences() -> Value {
         "agentCommands": commands,
         "agentCommandsError": prefs.agent_commands_error,
         "shortcut": prefs.shortcut,
+        "splitShortcut": prefs.split_shortcut,
         "newTabMode": prefs.new_tab_mode,
         "inspector": prefs.inspector
     })

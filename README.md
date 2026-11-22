@@ -34,6 +34,7 @@ Use **Split View** in the title bar or the **View** menu to see your open termin
 | --- | --- |
 | ⌘T | Open a tab in the active session’s directory |
 | ⌘K | Switch between the shell and its agent (configurable in Settings) |
+| ⌘L | Toggle Split View (configurable in Settings → General) |
 | ⌃L / ⌃U | Launch the light or ultra Codex profile from the robot prompt (configurable in Commands) |
 | ⌘W | Close the current tab or Settings window. Press again to confirm closing a busy tab. |
 | ⌘1 through ⌘9 | Select a tab by position |
