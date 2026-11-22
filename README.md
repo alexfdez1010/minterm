@@ -28,6 +28,8 @@ The Rust host uses macOS WebKit and a bundled copy of xterm.js. Building and run
 
 Minterm disables macOS inline text predictions in its terminal and task fields so suggested text cannot repeat characters already sent to the shell or an agent.
 
+Use **Split View** in the title bar or the **View** menu to see your open terminals together. Two tabs sit side by side, three put the first terminal across the top, and four make a two-by-two grid. With more tabs, Minterm adds rows and scrolls to the selected pane. Click a pane or press **⌘1** through **⌘9** to move the keyboard focus. The active pane has a mint outline. Switching views keeps your shells and agents open.
+
 | Shortcut | Action |
 | --- | --- |
 | ⌘T | Open a tab in the active session’s directory |

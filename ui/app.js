@@ -11,12 +11,16 @@ import { fixTerminalInput } from "./terminal-input.js";
 
 const tabs = new Map();
 const sessions = new Map();
+const terminals = $("terminals");
+const panesToggle = $("panes-toggle");
+const inspectorOverlays = window.matchMedia("(max-width: 770px)");
 const activity = new Activity((id) => sessions.get(id)?.term, receiveAgents);
 let active,
   nextId = 1,
   startPath,
   fontSize = defaultFontSize;
-let panel = window.innerWidth > 770 ? "inspector" : null;
+let panel = inspectorOverlays.matches ? null : "inspector";
+let split = false;
 let contextTimer, noticeTimer, confirmation, previousPanel, savedInspector;
 const currentTab = () => tabs.get(active);
 const visibleSession = (tab) => (tab?.mode === "agent" ? tab.companion : tab?.base);
@@ -53,9 +57,9 @@ function scheduleContext() {
 function updateTab(tab) {
   const session = visibleSession(tab);
   if (tab.iconKind !== session.kind) {
-    tab.button.firstElementChild.replaceWith(
-      icon(session.kind === "agent" ? "robot" : "terminal"),
-    );
+    const symbol = session.kind === "agent" ? "robot" : "terminal";
+    tab.button.firstElementChild.replaceWith(icon(symbol));
+    tab.heading.firstElementChild.replaceWith(icon(symbol));
     tab.iconKind = session.kind;
   }
   const pathLabel = (session.path || startPath).split("/").filter(Boolean).pop() || "/";
@@ -63,8 +67,9 @@ function updateTab(tab) {
   const name =
     session.kind === "agent"
       ? session.taskTitle || agentLabel(session.agent) + " · " + pathLabel
-      : (active === tab.id && session.lastCommand) || title || pathLabel;
-  tab.label.textContent = name;
+      : title || pathLabel;
+  tab.label.textContent = (session.kind === "shell" && active === tab.id && session.lastCommand) || name;
+  tab.paneLabel.textContent = name;
   const details = [session.path];
   if (session.kind === "agent") details.push(agentLabel(session.agent));
   if (session.git) {
@@ -72,50 +77,101 @@ function updateTab(tab) {
     details.push((session.git.detached ? "HEAD " : "") + session.git.branch + changes);
   }
   tab.button.title = details.join("\n");
-  tab.close.setAttribute("aria-label", "Close " + name);
+  tab.heading.title = tab.button.title;
+  tab.close.setAttribute("aria-label", "Close " + tab.label.textContent);
 }
-function updateSessionState() {
-  const session = current();
-  if (!session) return;
+function updateSessionState(tab) {
+  const session = visibleSession(tab);
   session.page.dataset.state = session.state;
   session.page.setAttribute("aria-busy", String(session.state === "opening"));
-  $("exit-note").hidden = session.state !== "ended" && session.state !== "failed";
-  $("exit-note").querySelector("span").textContent = session.reason || "";
-  $("restart").textContent = session.kind === "agent" ? "Restart agent" : "Open new shell";
+  tab.exitNote.hidden = session.state !== "ended" && session.state !== "failed";
+  tab.exitNote.firstElementChild.textContent = session.reason || "";
+  tab.exitNote.lastElementChild.textContent = session.kind === "agent" ? "Restart agent" : "Open new shell";
 }
-function fitActive() {
-  const session = current();
-  if (!session) return;
-  session.fit.fit();
-  updateSessionState();
-}
-function markSelected(tab, selected) {
+function renderTab(tab) {
+  const selected = tab.id === active;
+  const shown = split || selected;
   const visible = visibleSession(tab);
   tab.button.setAttribute("aria-controls", visible.page.id);
+  tab.heading.setAttribute("aria-controls", visible.page.id);
   for (const session of [tab.base, tab.companion]) {
     if (!session) continue;
+    session.page.classList.toggle("visible", shown && session === visible);
     session.page.classList.toggle("selected", selected && session === visible);
-    session.page.inert = !selected || session !== visible;
+    session.page.inert = !shown || session !== visible;
+    session.page.setAttribute("role", split ? "region" : "tabpanel");
   }
+  tab.pane.classList.toggle("visible", shown);
+  tab.pane.classList.toggle("active", selected);
+  if (selected) tab.heading.setAttribute("aria-current", "true");
+  else tab.heading.removeAttribute("aria-current");
   tab.row.classList.toggle("active", selected);
   tab.button.setAttribute("aria-selected", String(selected));
   tab.button.tabIndex = selected ? 0 : -1;
+  updateSessionState(tab);
 }
-function selectTab(id) {
+function layoutPanes() {
+  const count = tabs.size;
+  const tiled = split && count > 1;
+  terminals.classList.toggle("tiled", tiled);
+  panesToggle.disabled = !split && count < 2;
+  panesToggle.setAttribute("aria-pressed", String(split));
+  panesToggle.title = split ? "Return to Tab View" :
+    count < 2 ? "Open another tab to use Split View" : "Show terminals in Split View";
+  if (!tiled) return;
+
+  // Use equal-height rows and distribute the space across the panes in each row.
+  const columns = count <= 4 ? 2 : Math.max(2, Math.min(4, Math.floor(terminals.offsetWidth / 270)));
+  const rows = Math.ceil(count / columns);
+  const ordered = [...tabs.values()];
+  for (let row = 0; row < rows; row++) {
+    const start = Math.floor(row * count / rows);
+    const end = Math.floor((row + 1) * count / rows);
+    for (let index = start; index < end; index++) {
+      const { pane, shortcut, heading } = ordered[index];
+      pane.style.gridColumn = "span " + 12 / (end - start);
+      const number = index + 1;
+      shortcut.textContent = number <= 9 ? "⌘" + number : "";
+      if (number <= 9) heading.setAttribute("aria-keyshortcuts", "Meta+" + number);
+      else heading.removeAttribute("aria-keyshortcuts");
+    }
+  }
+}
+function fitVisible() {
+  if (split) {
+    for (const tab of tabs.values()) visibleSession(tab).fit.fit();
+  } else current()?.fit.fit();
+  commandMode.layout();
+}
+function togglePanes() {
+  if (panesToggle.disabled) return;
+  split = !split;
+  if (split && panel && inspectorOverlays.matches) setPanel(null, false);
+  layoutPanes();
+  for (const tab of tabs.values()) renderTab(tab);
+  fitVisible();
+  currentTab()?.pane.scrollIntoView({ block: "nearest", inline: "nearest" });
+  focusSession();
+}
+function selectTab(id, reveal = true) {
   const tab = tabs.get(id);
   if (!tab) return;
   const previous = currentTab();
   active = id;
   if (previous && previous !== tab) {
-    markSelected(previous, false);
+    renderTab(previous);
     updateTab(previous);
   }
-  markSelected(tab, true);
+  renderTab(tab);
   updateTab(tab);
   tab.row.scrollIntoView({ block: "nearest", inline: "nearest" });
+  if (split) {
+    if (panel && inspectorOverlays.matches) setPanel(null, false);
+    if (reveal) tab.pane.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
+  visibleSession(tab).fit.fit();
   commandMode.sync();
   focusSession();
-  fitActive();
   requestContext();
 }
 function setMode(tab, mode) {
@@ -135,13 +191,13 @@ function toggleCommand() {
     setMode(tab, "compose");
   }
 }
-function createSession(id, tabId, kind, source) {
+function createSession(id, tabId, body, kind, source) {
   const page = element("div", "terminal-page");
   page.id = "term-" + id;
   page.dataset.kind = kind;
   page.setAttribute("role", "tabpanel");
   page.setAttribute("aria-labelledby", "tab-" + tabId);
-  $("terminals").append(page);
+  body.append(page);
   const term = new Terminal({
     theme,
     fontFamily: terminalFont,
@@ -192,7 +248,6 @@ function createSession(id, tabId, kind, source) {
   });
   term.onResize(({ cols, rows }) => {
     if (session.state === "live") send("resize", { id, cols, rows });
-    if (current() === session) updateSessionState();
   });
   if (kind === "shell") {
     // Matches the private OSC emitted by the shell integration.
@@ -232,17 +287,45 @@ function newTab(task, from = current()?.id, mode = commandMode.newTabMode) {
   button.setAttribute("role", "tab");
   const label = element("span");
   button.append(icon("terminal"), label);
-  button.onclick = () => selectTab(id);
   const close = element("button", "tab-close");
   close.title = "Close tab (⌘W)";
   close.append(icon("close"));
-  close.onclick = () => send("close", { id });
+  close.onclick = (event) => {
+    event.stopPropagation();
+    send("close", { id });
+  };
+  row.onclick = () => selectTab(id);
   row.append(button, close);
   $("tablist").append(row);
-  const base = createSession(id, id, "shell", sessions.get(from));
-  const tab = { id, row, button, label, close, base, companion: null, mode: "shell", draft: "" };
+  const pane = element("div", "terminal-pane");
+  const heading = element("button", "pane-heading");
+  const paneLabel = element("span", "pane-label");
+  const shortcut = element("kbd");
+  shortcut.setAttribute("aria-hidden", "true");
+  heading.append(icon("terminal"), paneLabel, shortcut);
+  heading.onclick = () => selectTab(id);
+  const body = element("div", "pane-body");
+  const activatePane = () => {
+    if (active !== id || (split && panel && inspectorOverlays.matches)) selectTab(id, false);
+  };
+  body.addEventListener("pointerdown", (event) => {
+    if (event.button === 0) activatePane();
+  });
+  body.addEventListener("focusin", activatePane);
+  const exitNote = element("div", "exit-note");
+  exitNote.hidden = true;
+  const restart = element("button", "restart");
+  exitNote.append(element("span"), restart);
+  pane.append(heading, body, exitNote);
+  terminals.append(pane);
+  const base = createSession(id, id, body, "shell", sessions.get(from));
+  const tab = { id, row, button, label, close, pane, heading, paneLabel, shortcut, body, exitNote,
+    base, companion: null, mode: "shell", draft: "" };
+  restart.onclick = () => restartSession(tab);
   tabs.set(id, tab);
+  layoutPanes();
   selectTab(id);
+  if (split) fitVisible();
   send("open", { id, from, cols: base.term.cols, rows: base.term.rows });
   if (task || mode === "agent")
     openInteractive(tab, task?.agent || commandMode.agent, task?.prompt || "");
@@ -271,7 +354,7 @@ function openInteractive(tab, agent, prompt) {
   if (tab.companion) {
     disposeSession(tab.companion);
   }
-  const companion = createSession(nextId++, tab.id, "agent", tab.base);
+  const companion = createSession(nextId++, tab.id, tab.body, "agent", tab.base);
   companion.agent = agent;
   companion.initialPrompt = prompt;
   companion.taskTitle = prompt.trim().replace(/\s+/g, " ").slice(0, 80);
@@ -282,6 +365,7 @@ function openInteractive(tab, agent, prompt) {
   return true;
 }
 function disposeSession(session) {
+  if (commandMode.session === session) commandMode.attach(undefined);
   sessions.delete(session.id);
   activity.close(session.id);
   session.term.dispose();
@@ -296,11 +380,14 @@ function discard(id) {
   disposeSession(tab.base);
   if (tab.companion) disposeSession(tab.companion);
   tab.row.remove();
+  tab.pane.remove();
   if (!tabs.size) {
     send("quit");
     return;
   }
+  layoutPanes();
   if (id === active) selectTab(order[index + 1] ?? order[index - 1]);
+  if (split) fitVisible();
 }
 function changeTab(direction) {
   const ids = [...tabs.keys()];
@@ -321,8 +408,10 @@ function setPanel(next, toggle = true) {
   $("inspector-toggle").setAttribute("aria-pressed", String(panel === "inspector"));
   saveInspector();
   if (panel === "inspector") refreshInspector();
-  focusSession();
-  fitActive();
+  if (panel && split && inspectorOverlays.matches) $("refresh").focus();
+  else focusSession();
+  layoutPanes();
+  fitVisible();
 }
 function confirmStop(listener) {
   confirmation = listener;
@@ -361,7 +450,7 @@ function command(name) {
       newTab();
       break;
     case "commandMode":
-      if (window.innerWidth <= 770 && panel) setPanel(null, false);
+      if (inspectorOverlays.matches && panel) setPanel(null, false);
       toggleCommand();
       break;
     case "close":
@@ -372,6 +461,9 @@ function command(name) {
       break;
     case "inspector":
       setPanel(name);
+      break;
+    case "panes":
+      togglePanes();
       break;
     case "agents":
       setPanel("inspector", false);
@@ -401,7 +493,7 @@ function command(name) {
           ? defaultFontSize
           : Math.max(9, Math.min(28, fontSize + (name === "larger" ? 1 : -1)));
       for (const session of sessions.values()) session.term.options.fontSize = fontSize;
-      fitActive();
+      fitVisible();
       break;
   }
 }
@@ -438,10 +530,8 @@ window.minterm = {
           if (session === tab.base) dispatchInteractive(tab);
           else activity.update({ id: session.id, state: "running", detail: "Session open" });
           updateTab(tab);
-          if (tab.id === active) {
-            commandMode.sync();
-            updateSessionState();
-          }
+          updateSessionState(tab);
+          if (tab.id === active) commandMode.sync();
         }
         break;
       case "output":
@@ -468,10 +558,9 @@ window.minterm = {
             delete tab.companion.initialPrompt;
             activity.finish(tab.companion.id, false, "Could not open the source shell");
           }
-          if (tab.id === active) {
-            commandMode.sync();
-            updateSessionState();
-          }
+          updateSessionState(tab);
+          if (tab.pane.classList.contains("visible")) visibleSession(tab).fit.fit();
+          if (tab.id === active) commandMode.sync();
         }
         break;
       case "closed":
@@ -528,20 +617,20 @@ tabOptions.addEventListener("keydown", (event) => {
     tabOptions.querySelector("summary").focus();
   }
 });
-$("restart").onclick = () => {
-  const tab = currentTab();
-  if (!tab) return;
-  if (current().kind === "agent") {
+function restartSession(tab) {
+  const session = visibleSession(tab);
+  if (session.kind === "agent") {
     if (!tab.base.cwdKnown) {
       setMode(tab, "shell");
       return;
     }
-    openInteractive(tab, current().agent, "");
+    openInteractive(tab, session.agent, "");
   } else {
     newTab(undefined, tab.id, "terminal");
     send("close", { id: tab.id });
   }
-};
+}
+panesToggle.onclick = () => command("panes");
 $("inspector-toggle").onclick = () => setPanel("inspector");
 $("command-toggle").onclick = () => command("commandMode");
 $("cancel").onclick = () => $("confirm").close();
@@ -558,7 +647,7 @@ initInspector(
     const session = sessions.get(id);
     const tab = tabs.get(session?.tabId);
     if (!tab) return;
-    if (window.innerWidth <= 770) setPanel(null, false);
+    if (inspectorOverlays.matches) setPanel(null, false);
     setMode(tab, session === tab.companion ? "agent" : "shell");
   },
   (id) => {
@@ -567,7 +656,7 @@ initInspector(
     return "Tab " + ([...tabs.keys()].indexOf(tab.id) + 1) + " · " + tab.label.textContent;
   },
   (task) => {
-    if (window.innerWidth <= 770) setPanel(null, false);
+    if (inspectorOverlays.matches) setPanel(null, false);
     newTab(task);
   },
   () => commandMode.agent,
@@ -575,8 +664,9 @@ initInspector(
   saveInspector,
   confirmStop,
 );
-$("titlebar").addEventListener("mousedown", (e) => {
-  if (e.button === 0 && !e.target.closest("button, summary, .tab")) send("drag");
+const titlebar = $("titlebar");
+titlebar.addEventListener("mousedown", (e) => {
+  if (e.button === 0 && (e.target === titlebar || e.target.matches(".drag-space"))) send("drag");
 });
 document.addEventListener(
   "keydown",
@@ -643,7 +733,16 @@ document.addEventListener(
   },
   true,
 );
-new ResizeObserver(fitActive).observe($("terminals"));
+new ResizeObserver(() => {
+  layoutPanes();
+  fitVisible();
+  const tab = currentTab();
+  tab?.row.scrollIntoView({ block: "nearest", inline: "nearest" });
+  if (split) tab?.pane.scrollIntoView({ block: "nearest", inline: "nearest" });
+}).observe(terminals);
+inspectorOverlays.addEventListener("change", ({ matches }) => {
+  if (matches && split && panel) setPanel(null, false);
+});
 function refreshVisible() {
   if (document.hidden || !document.hasFocus()) return;
   requestContext();

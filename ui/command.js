@@ -244,6 +244,7 @@ export class CommandMode {
     this.listeners = [];
     this.session?.term.element?.style.removeProperty("transform");
     this.session?.page.classList.remove("composing");
+    (session?.page || $("terminals")).append($("command-form"));
     this.enterTab = null;
     this.session = session;
     this.shift = 0;

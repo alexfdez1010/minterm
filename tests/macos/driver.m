@@ -30,6 +30,12 @@
         return;
     }
     if (key[@"preferences"]) { qa_preferences(self.window, key[@"preferences"], reply); return; }
+    if (key[@"size"]) {
+        NSArray *size = key[@"size"];
+        [self.window setContentSize:NSMakeSize([size[0] doubleValue], [size[1] doubleValue])];
+        reply(@YES, nil);
+        return;
+    }
     if (key[@"menuItem"]) {
         NSMenu *menu = [NSApp.mainMenu itemWithTitle:@"Shell"].submenu;
         NSInteger index = [menu indexOfItemWithTitle:key[@"menuItem"]];

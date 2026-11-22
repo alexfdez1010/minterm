@@ -13,6 +13,7 @@ const paths = {
   close: "m6 6 12 12M18 6 6 18",
   terminal: "m4 6 6 6-6 6m9 0h6",
   panel: "M3 5h18v14H3zM14 5v14",
+  panes: "M3 5h18v14H3zM12 5v14M3 12h18",
   ports: "M4 6v5m4-5v5M3 11h6v2a3 3 0 0 1-6 0zm3 5v3h8m2-15v5m4-5v5m-5 0h6v2a3 3 0 0 1-6 0zm3 5v5",
   refresh: "M20 10a8 8 0 0 0-14-4L3 9m0-5v5h5m-4 5a8 8 0 0 0 14 4l3-3m0 5v-5h-5",
   agents: "m4 7 5 5-5 5m7-10 5 5-5 5m6 0h4",

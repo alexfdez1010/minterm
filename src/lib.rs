@@ -53,6 +53,8 @@ pub fn launch(
     }));
     let ipc = proxy.clone();
     let view = WebViewBuilder::new()
+        // A click can select a tab when returning from another app.
+        .with_accept_first_mouse(true)
         // PTYs need renderer acknowledgements while the window is minimized.
         .with_background_throttling(wry::BackgroundThrottlingPolicy::Disabled)
         .with_incognito(!visible)

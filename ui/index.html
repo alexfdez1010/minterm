@@ -39,6 +39,18 @@
       <div class="drag-space"></div>
       <div class="tools">
         <button
+          id="panes-toggle"
+          class="icon"
+          type="button"
+          title="Open another tab to use Split View"
+          aria-label="Split View"
+          aria-controls="terminals"
+          aria-pressed="false"
+          disabled
+        >
+          <i data-icon="panes"></i>
+        </button>
+        <button
           id="command-toggle"
           class="icon"
           type="button"
@@ -81,7 +93,6 @@
             ></textarea>
           </form>
         </div>
-        <div id="exit-note" hidden><span></span><button id="restart">Open new shell</button></div>
       </section>
       <aside id="sidebar" aria-label="Tools">
         <section id="inspect-panel" class="panel">

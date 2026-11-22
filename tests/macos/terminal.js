@@ -2,6 +2,8 @@
 const $ = (query) => document.querySelector(query);
 const tabs = () => [...document.querySelectorAll('[role="tab"]')];
 const selected = () => $('[role="tab"][aria-selected="true"]');
+const panes = () => [...document.querySelectorAll('.terminal-pane.visible')];
+const focusedTerminal = () => $('.terminal-page.selected textarea.xterm-helper-textarea');
 // WebKit defers animation frames and accessibility updates in a hidden window.
 // Capture xterm's public parsed cell buffer when the real tab takes focus.
 function activeTerminal() {
@@ -29,6 +31,8 @@ async function expect(description, condition) {
 const command = 1 << 20, control = 1 << 18, shift = 1 << 17;
 const key = (code, text, modifiers = 0, plain = text, phase = '') =>
   window.webkit.messageHandlers.testKey.postMessage({code, text, modifiers, plain, phase});
+const resizeWindow = (width, height) =>
+  window.webkit.messageHandlers.testKey.postMessage({size: [width, height]});
 const controlLetter = (code, letter, phase) =>
   key(code, String.fromCharCode(letter.toUpperCase().charCodeAt(0) & 31), control, letter, phase);
 const keyPhase = (phase, code, text) => key(code, text, 0, text, phase);
@@ -168,10 +172,95 @@ try {
   await enter('../bin/codex');
   await expect('Manual CLI is ready before its tab goes into the background', () =>
     rows(terminal).some(line => line.includes('Do you want to proceed? [y/n]')));
+  await expect('Split View needs at least two tabs', () => $('#panes-toggle').disabled);
+  const geometry = () => panes().map(pane => pane.getBoundingClientRect());
+  const aligned = (a, b) => Math.abs(a - b) < 1;
   for (let count = 2; count <= 9; count++) {
     await key(17, 't', command);
     await expect('One new live tab per Command-T', () => tabs().length === count &&
       selected() === tabs()[count - 1] && $('.terminal-page.selected')?.dataset.state === 'live');
+    if (count === 2) {
+      const second = selected();
+      const shell = activeTerminal();
+      const tabWidth = shell.cols;
+      first.closest('.tab').click();
+      await expect('A click on the tab row selects and focuses it', () =>
+        selected() === first && document.activeElement === focusedTerminal());
+      $('#panes-toggle').click();
+      await expect('Two live terminals sit side by side', () => {
+        const [left, right] = geometry();
+        return panes().length === 2 && aligned(left.top, right.top) &&
+          aligned(left.width, right.width) && left.right < right.left && shell.cols < tabWidth;
+      });
+      panes()[1].querySelector('.pane-body').dispatchEvent(
+        new PointerEvent('pointerdown', {button: 0, bubbles: true})
+      );
+      await expect('A mouse click inside the inactive terminal focuses its shell', () =>
+        selected() === second && document.activeElement === focusedTerminal() &&
+        panes()[1].querySelector('[aria-current="true"]'));
+      await enter("printf 'split-session\\n'; stty size");
+      await expect('The focused pane receives input and uses its own PTY size', () =>
+        rows(shell).includes('split-session') && rows(shell).includes(shell.rows + ' ' + shell.cols) &&
+        !rows(terminal).includes('split-session'));
+      await key(18, '1', command);
+      await expect('Command-1 focuses the first pane and its original session', () =>
+        selected() === first && document.activeElement === focusedTerminal() &&
+        panes()[0].querySelector('[aria-current="true"]') && activeTerminal() === terminal);
+    }
+    if (count === 3) {
+      await expect('Three panes put the first terminal above two equal panes', () => {
+        const [top, left, right] = geometry();
+        return panes().length === 3 && top.bottom < left.top && aligned(left.top, right.top) &&
+          aligned(top.left, left.left) && aligned(top.right, right.right) && aligned(left.width, right.width);
+      });
+      await key(40, 'k', command);
+      await type('split draft');
+      await expect('Agent draft stays inside its own pane', () =>
+        panes()[2].contains($('#command-form')) && $('#command-input').value === 'split draft');
+      await key(18, '1', command);
+      await expect('Keyboard focus leaves the draft and moves to the selected shell', () =>
+        $('#command-form').hidden && document.activeElement === focusedTerminal());
+      await key(20, '3', command);
+      $('#panes-toggle').click();
+      await expect('Switching back keeps the selected terminal and draft', () =>
+        panes().length === 1 && selected() === tabs()[2] && document.activeElement === $('#command-input') &&
+        $('#command-input').value === 'split draft');
+      $('#panes-toggle').click();
+      await key(53, '\x1b');
+    }
+    if (count === 4) {
+      await expect('Four terminals fill a two-by-two grid', () => {
+        const [a, b, c, d] = geometry();
+        return panes().length === 4 && aligned(a.top, b.top) && aligned(c.top, d.top) &&
+          aligned(a.left, c.left) && aligned(b.left, d.left) && a.bottom < c.top;
+      });
+    }
+    if (count === 5) {
+      await resizeWindow(610, 390);
+      await expect('Five panes scroll at minimum window size without horizontal overflow', () => {
+        const grid = $('#terminals');
+        const selectedRow = selected().closest('.tab').getBoundingClientRect();
+        return innerWidth <= 610 && panes().length === 5 && $('#sidebar').hidden &&
+          grid.scrollHeight > grid.clientHeight && grid.scrollWidth === grid.clientWidth &&
+          selectedRow.right <= $('#tablist').getBoundingClientRect().right + 1;
+      });
+      await key(18, '1', command);
+      await expect('Command-1 scrolls the first pane into view', () =>
+        selected() === first && geometry()[0].top >= $('#terminals').getBoundingClientRect().top - 1);
+      await key(23, '5', command);
+      await expect('Command-5 scrolls the last pane into view', () =>
+        selected() === tabs()[4] && geometry()[4].bottom <= $('#terminals').getBoundingClientRect().bottom + 1);
+      await key(13, 'w', command);
+      await expect('Closing the focused pane reflows the other four', () =>
+        tabs().length === 4 && panes().length === 4 && selected() === tabs()[3]);
+      await key(17, 't', command);
+      await expect('New tabs continue opening as panes', () =>
+        tabs().length === 5 && panes().length === 5 && $('.terminal-page.selected')?.dataset.state === 'live');
+      $('#panes-toggle').click();
+      await resizeWindow(1120, 710);
+      await expect('Restoring the normal window leaves the selected terminal focused', () =>
+        innerWidth >= 1120 && panes().length === 1 && document.activeElement === focusedTerminal());
+    }
   }
   await expect('New tab inherits the nested directory', () =>
     selected().title.includes('/workspace/nested') && selected().title.includes('agent/review'));
@@ -264,6 +353,11 @@ try {
   await expect('Inspector shows local activity from the CLI', () =>
     launchedRow()?.textContent.includes('Running a command') &&
     launchedRow()?.querySelector('.agent-status')?.dataset.state === 'running');
+  $('#panes-toggle').click();
+  const launchedPane = () => launched.element.closest('.terminal-pane');
+  await expect('Split View shows one terminal per tab, including the live agent', () =>
+    document.querySelectorAll('.terminal-page.visible').length === beforeLaunch + 1 &&
+    launchedPane().classList.contains('active') && surface().dataset.kind === 'agent');
   await key(13, 'w', command);
   const confirm = $('#confirm'), close = $('#confirm-close');
   await expect('Command-W on the live agent asks before closing', () =>
@@ -281,10 +375,12 @@ try {
   await expect('Running tab is still available', () => selected() === launchedTab);
   await enter('review complete');
   await expect('The agent launched from the inspector accepts follow-up input', () =>
-    rows(launched).some(line => line.includes('Fixture reply: review complete')));
+    rows(launched).join('').includes('Fixture reply: review complete'));
   await enter('/exit');
-  await expect('Finished run remains in Agents', () =>
-    launchedRow()?.querySelector('.agent-status')?.dataset.state === 'completed');
+  await expect('Finished run remains in Agents and offers recovery in its own pane', () =>
+    launchedRow()?.querySelector('.agent-status')?.dataset.state === 'completed' &&
+    launchedPane().querySelector('.exit-note:not([hidden])'));
+  $('#panes-toggle').click();
   await key(13, 'w', command);
   await expect('Closing the run returns to the source shell', () =>
     tabs().length === beforeLaunch && selected() === sourceTab &&
@@ -553,6 +649,6 @@ try {
   return String(err) + '\n' + JSON.stringify({
     tab: selected()?.textContent, focus: document.activeElement.id || document.activeElement.className,
     surface: $('.terminal-page.selected')?.dataset, draft: $('#command-input').value,
-    reason: $('#exit-note')?.textContent,
+    reason: $('.terminal-pane.active .exit-note')?.textContent,
   }) + '\n' + err.stack;
 }
