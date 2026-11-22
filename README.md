@@ -1,12 +1,26 @@
 # Minterm
 
-Minterm is a small macOS terminal for working with command-line agents. Each tab keeps a login shell and can switch to an interactive coding agent, each on its own pseudo-terminal. The inspector shows agents across tabs, listening TCP ports and Docker port mappings. Select an agent to focus its terminal.
+<img src="macos/Minterm.svg" alt="" width="72" height="72">
+
+**A minimal macOS terminal for working with coding agents from the keyboard.**
+
+Run Codex, Claude Code and OpenCode side by side in one window. Jump from an agent to its shell to check a diff or run a test, then pick up where you left off.
 
 ## Install and open Minterm
 
-On an Apple Silicon Mac with macOS 13 or later, download `Minterm-arm64.zip` from [GitHub Releases](https://github.com/alexfdez1010/minterm/releases). Unzip it and move Minterm to Applications. Release builds use an ad hoc signature. macOS may require you to approve the first launch in System Settings → Privacy & Security.
+Minterm runs on **macOS 13 or later**. The downloadable app is built for **Apple Silicon**.
 
-To build from source, install Rust 1.90 or newer and the Xcode Command Line Tools. You can get the command line tools by running `xcode-select --install`. [Install Rust](https://rust-lang.org/tools/install/)
+### 📦 Download the app
+
+Download `Minterm-arm64.zip`, unzip it and move `Minterm.app` to Applications. [Download from GitHub Releases](https://github.com/alexfdez1010/minterm/releases)
+
+The app is ad hoc signed. If macOS asks you to approve the first launch, open **System Settings → Privacy & Security** and follow the macOS instructions. [Apple’s instructions](https://support.apple.com/en-us/102445)
+
+The current ZIP, `v0.1.0`, predates Split View. Use the source build below to try the workspace described here.
+
+### 🛠️ Build from source
+
+Install Rust 1.90 or later and the Xcode Command Line Tools (`xcode-select --install`). [Install Rust](https://rust-lang.org/tools/install/)
 
 ```sh
 git clone https://github.com/alexfdez1010/minterm.git
@@ -14,85 +28,56 @@ cd minterm
 ./macos/bundle.sh --install && open "$HOME/Applications/Minterm.app"
 ```
 
-The installer builds Minterm, signs it locally and installs it in your personal Applications folder. You can then open Minterm from Spotlight or Finder. To update, quit Minterm and run the last command again from an updated checkout.
-
-To start Minterm in a project, run this command from that project's directory.
+The script builds, signs and installs the app in `~/Applications`. To update, quit Minterm, pull the latest changes and rerun the last command. To open a particular project, run the installed executable from that project’s directory.
 
 ```sh
 "$HOME/Applications/Minterm.app/Contents/MacOS/minterm" "$PWD"
 ```
 
-The Rust host uses macOS WebKit and a bundled copy of xterm.js. Building and running the terminal requires neither Node.js nor an online frontend. Docker is optional.
+## ⚡ Start an agent
 
-## Working in the terminal
+Install and set up the CLI you want to use. To pick your default, open **Settings → Commands**, select its row and choose **Set as Default**.
 
-Minterm disables macOS inline text predictions in its terminal and task fields so suggested text cannot repeat characters already sent to the shell or an agent.
+1. Press **⌘K**, type a task at the robot prompt and press **Return**. Press Return with an empty prompt to start an interactive session.
+2. Press **⌘K** again to switch between the agent and its shell. Each keeps its own processes and scrollback.
+3. Open a second tab with **⌘T**. Press **⌘L** or click **Split View** in the title bar to see both tabs. Use **⌘1** through **⌘9** to move the keyboard focus between panes.
 
-Use **Split View** in the title bar or the **View** menu to see your open terminals together. Two tabs sit side by side, three put the first terminal across the top, and four make a two-by-two grid. With more tabs, Minterm adds rows and scrolls to the selected pane. Click a pane or press **⌘1** through **⌘9** to move the keyboard focus. The active pane has a mint outline. Switching views keeps your shells and agents open.
+## 🪟 The workspace
+
+- **Keep several sessions in view.** Split View tiles your open tabs. Add another agent, keep build output beside it or return to one tab while everything keeps running.
+- **Find the session that needs you.** Press **⌘⇧A** to open the running agents list. The inspector recognizes Codex, Claude Code and OpenCode started from the shell too. Select a session marked **Input requested** to answer in its terminal.
+- **See what’s running locally.** The inspector shows listening TCP ports and optional Docker mappings. Tabs show the working directory and Git ref on hover, and zsh and Bash can show them in the prompt.
+
+[Workspace guide](docs/workspace.md#the-terminal-workspace)
+
+## ⌨️ Keyboard shortcuts
 
 | Shortcut | Action |
 | --- | --- |
 | ⌘T | Open a tab in the active session’s directory |
-| ⌘K | Switch between the shell and its agent (configurable in Settings) |
-| ⌘L | Toggle Split View (configurable in Settings → General) |
-| ⌃L / ⌃U | Launch the light or ultra Codex profile from the robot prompt (configurable in Commands) |
-| ⌘W | Close the current tab or Settings window. Press again to confirm closing a busy tab. |
-| ⌘1 through ⌘9 | Select a tab by position |
+| ⌘K | Switch between a shell and its agent |
+| ⌘L | Toggle Split View |
+| ⌘1 through ⌘9 | Select a tab or pane by position |
 | ⌃Tab / ⌃⇧Tab | Select the next or previous tab |
 | ⌘⇧A | Open the running agents list |
 | ⌘I | Show or hide the local inspector |
 | ⌘⇧Return | Focus the terminal or restore its panels |
-| ⌘+ | Increase terminal text size |
-| ⌘− | Decrease terminal text size |
-| ⌘0 | Restore the default terminal text size |
+| ⌃L / ⌃U | Launch the light or ultra Codex profile from the robot prompt |
+| ⌘W | Close the current tab or Settings. Press again to confirm closing a busy tab. |
+| ⌘+ / ⌘− / ⌘0 | Increase, decrease or reset the terminal text size |
 | ⌘, | Open Settings |
 
-In zsh and Bash, the prompt shows the current folder, the Git branch and a chevron. The chevron turns amber when a command fails. A detached checkout shows its short commit ID. Minterm reads Git’s HEAD file to build the prompt. To keep your existing prompt, launch Minterm with `MINTERM_PROMPT=0`. Other shells keep their own prompt. The active terminal tab shows a shortened preview of the latest command from zsh or Bash. Bash updates the title when its prompt returns and uses commands recorded in history.
+In **Settings → General**, change **Switch mode**, **Toggle Split View** or the mode that **⌘T** opens. Record a Command shortcut with a letter and any additional modifiers you want.
 
-In zsh 5.9 or later, the first suggestion appears in gray as you type. Right Arrow accepts it at the end of the line. Matches come from recent shell history and command names. Tab keeps your usual completion. In Bash, Shift-Tab cycles through Readline’s completions when that binding is available. Set `MINTERM_AUTOSUGGEST=0` to disable Minterm’s suggestions.
+## Agent commands
 
-Hover over a tab to see its full path, current Git ref and any changes to tracked files. The inspector opens with Agents expanded. Expand **Ports** to see local listeners, published Docker ports and databases without a host port.
-
-The **Development** filter shows common development ports, database containers and Docker mappings whose host or target uses a development port. **All ports** includes other published container ports and every TCP listener visible to your macOS account. The process name and PID come from the listener. A label such as Vite describes the port’s usual purpose. The same list uses the local Docker context and recognizes database image names including PostgreSQL, pgvector, MySQL, MongoDB and Redis.
-
-The agents list recognizes Codex, Claude Code and OpenCode, including sessions started directly from the shell. Selecting a background job opens its owning tab.
-
-## Agent sessions
-
-In **Settings → Commands**, select a command and choose **Set as Default**. Codex, Claude Code and OpenCode appear in the same list as your own commands. Double-click any row to edit its invocation, arguments or shortcut. Install the underlying CLI and complete its sign-in or local model setup. **General** controls the mode shortcut and which mode ⌘T opens.
-
-On upgrade, the previous default ⇧⌘K changes to ⌘K. Other saved shortcuts are preserved.
-
-Press **⌘K** in a shell. A robot replaces the prompt chevron. Type your task there and press Return to start the selected CLI in the shell’s current directory. Shift-Return inserts a newline. Press Return at an empty prompt to open the CLI without an initial task. Press ⌘K again to move between the shell and the running agent. Each keeps its own input, processes and scrollback.
-
-**Agents → +** opens the selected agent in a new tab. Leave **Task** empty to start an interactive session, or enter a task to send when it starts. The inspector reads activity locally and marks recognizable confirmation prompts as **Input requested**. Select the agent to answer in its terminal.
-
-### Agent commands
-
-To assign or change a shortcut, open a command in **Settings → Commands**. Click the button beside **Shortcut**, press Control and a letter together, then choose **Save**. From the **Shell command** field, Tab to the recorder and press Space to start. Escape cancels recording. To remove a binding, click × or press Delete with the recorder focused, then save.
-
-At the robot prompt, type a saved name and press Return to start it. To pass an initial task, type the name followed by the task, such as `ocq Review the current diff`. Other text goes to your default agent. A running agent keeps its own keyboard controls.
-
-| Starter command | Launches | Shortcut at the robot prompt |
-| --- | --- | --- |
-| `codex`, `claude`, `opencode` | The corresponding interactive CLI | |
-| `ocq` | Your shell’s `ocq` alias for OpenCode with Qwen through Ollama | |
-| `sol-light` | Codex with `gpt-6.2-sol` and low reasoning effort | Control-L |
-| `sol-ultra` | Codex with `gpt-6.2-sol` and ultra reasoning effort | Control-U |
-
-With the robot prompt focused, press a profile’s shortcut to launch it with your draft. Leave the prompt empty to start a session without a task. Existing bindings such as `Enter+L` also work with Control-L. You can still hold Return and press L for that binding.
-
-The `ocq` preset calls `ocq --` so that `ollama launch` forwards the task to OpenCode. To change the Ollama model, edit your alias or set the profile’s shell command to `ollama launch opencode --model MODEL --`, replacing `MODEL` with its installed name. If your alias starts OpenCode directly, use `ocq` as the shell command.
-
-Edit profiles in **Settings → Commands** or in `~/.config/minterm/agents.toml`. When `XDG_CONFIG_HOME` is set to an absolute directory, Minterm uses `$XDG_CONFIG_HOME/minterm/agents.toml`. **Show in Finder** opens the file’s location. The first launch copies the [starter TOML](config/agents.toml) there.
-
-In the current file format (`version = 2`), this list includes the three standard agents. Minterm upgrades earlier files on first use and keeps custom commands, executable paths and the selected default.
-
-Add a `[[commands]]` table per profile. Its `name` is what you type, `agent` selects the initial-task syntax (`codex`, `claude` or `opencode`), and `command` is the invocation in your interactive login shell. Put persistent aliases or functions in that shell’s startup files. The optional `shortcut` takes the form `"Ctrl+L"`. Give each shortcut a different letter. To set the default in the file, put `default = "sol-light"` above the first table. To use a changed profile, return to Minterm and start a new agent session.
+In **Settings → Commands**, double-click a row to edit the shell invocation, model options or shortcut. You can also edit `~/.config/minterm/agents.toml` directly. To use a preset from the robot prompt, type its name followed by your task, for example `sol-light Review the current diff`. [Agent command guide](docs/workspace.md#agent-commands)
 
 ## Development
 
-Run `cargo run --release --locked -- /path/to/project` to launch from source. To build and open a separate app in the checkout, run `./macos/bundle.sh && open dist/Minterm.app`.
+Minterm uses a Rust host, macOS WebKit and bundled xterm.js. It builds without Node.js and runs the frontend locally.
+
+Run `cargo run --release --locked -- /path/to/project` to launch from source, or `./macos/bundle.sh && open dist/Minterm.app` to build and open a separate app in the checkout.
 
 ```sh
 cargo fmt --check
@@ -101,10 +86,14 @@ cargo test --locked
 cargo test --locked --features ui-tests --test macos-ui
 ```
 
-The last command drives AppKit and WebKit in a logged-in macOS session with an isolated home. See [AGENTS.md](AGENTS.md) for the source layout and the repository skill for changing terminal behavior.
+The last command drives AppKit and WebKit in a logged-in macOS session with an isolated home.
 
-To publish a release, set the version in `Cargo.toml`, `Cargo.lock` and `macos/Info.plist`, then push the matching tag, such as `v0.1.0`. GitHub Actions tests and packages the Apple Silicon build before publishing the ZIP.
+### 🤝 Contributing
 
-The embedded renderer is xterm.js 6.0.0 with its fit addon 0.11.0. Their upstream licenses are included in [ui/vendor](ui/vendor).
+Open a GitHub issue for a bug or a feature idea. For terminal and shortcut bugs, include your macOS version, shell, reproduction steps and the agent CLI involved, if any. For a pull request, describe the behavior you changed and the checks you ran. [GitHub Issues](https://github.com/alexfdez1010/minterm/issues) · [Repository guide](AGENTS.md) · [Design system](DESIGN.md)
 
-Minterm Mono is drawn for the terminal. Regenerate both weights with `uv run ui/fonts/build_minterm_mono.py`. Martian Mono and Barlow are bundled under the SIL Open Font License. See [font licenses](ui/fonts) and the [design system](DESIGN.md).
+### Releases and bundled assets
+
+To publish a release, update the version in `Cargo.toml`, `Cargo.lock` and `macos/Info.plist`, then push the matching version tag. GitHub Actions tests and packages the Apple Silicon build before publishing the ZIP. [Release workflow](.github/workflows/release.yml)
+
+The embedded renderer is xterm.js 6.0.0 with its fit addon 0.11.0. Martian Mono and Barlow ship under the SIL Open Font License. To regenerate the two Minterm Mono weights, run `uv run ui/fonts/build_minterm_mono.py`. [Renderer licenses](ui/vendor) · [Font licenses](ui/fonts)
