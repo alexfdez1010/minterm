@@ -155,6 +155,7 @@ function fitVisible() {
 function togglePanes() {
   if (panesToggle.disabled) return;
   split = !split;
+  send("saveSplitView", { enabled: split });
   if (split && panel && inspectorOverlays.matches) setPanel(null, false);
   layoutPanes();
   for (const tab of tabs.values()) renderTab(tab);
@@ -519,12 +520,13 @@ window.minterm = {
     switch (name) {
       case "ready":
         startPath = data.path;
+        split = data.preferences.splitView === true;
         applyPreferences(data.preferences);
+        newTab();
         const state = data.preferences.inspector;
         restoreInspector(state ?? {});
         if (state?.visible != null) panel = state.visible ? "inspector" : null;
         savedInspector = JSON.stringify(inspectorState(panel === "inspector"));
-        newTab();
         setPanel(panel, false);
         break;
       case "opened":

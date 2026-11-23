@@ -17,6 +17,7 @@ pub struct Preferences {
     pub agent_commands_error: Option<String>,
     pub shortcut: String,
     pub split_shortcut: String,
+    pub split_view: bool,
     pub new_tab_mode: String,
     pub inspector: InspectorPreferences,
     #[serde(skip_serializing)]
@@ -95,6 +96,7 @@ impl Default for Preferences {
             agent_commands_error: None,
             shortcut: "⌘K".into(),
             split_shortcut: "⌘L".into(),
+            split_view: false,
             new_tab_mode: "terminal".into(),
             inspector: InspectorPreferences::default(),
             codex_path: String::new(),
@@ -223,6 +225,11 @@ pub fn update(field: &str, value: &str) -> Result<(), String> {
 
 fn update_at(path: &Path, field: &str, value: &str) -> Result<(), String> {
     save_at(path, field, validated_value(field, value)?.into())
+}
+
+pub fn save_split_view(enabled: bool) -> Result<(), String> {
+    let path = path().ok_or("Could not locate the preferences folder.")?;
+    save_at(&path, "splitView", enabled.into())
 }
 
 fn save_at(path: &Path, field: &str, value: serde_json::Value) -> Result<(), String> {

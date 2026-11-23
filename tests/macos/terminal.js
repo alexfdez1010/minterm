@@ -77,6 +77,17 @@ function verifyCloseContrast(dialog, button) {
 try {
   await expect('First shell and its Git branch', () => tabs().length === 1 &&
     $('.terminal-page.selected')?.dataset.state === 'live' && selected().title.includes('main') && selected().title.includes('/workspace'));
+  if (restoredSplit !== null) {
+    await expect('The previous view is restored with one terminal', () => panes().length === 1 &&
+      $('#panes-toggle').getAttribute('aria-pressed') === String(restoredSplit));
+    await key(17, 't', command);
+    await expect('The second terminal opens in the restored view', () => tabs().length === 2 &&
+      panes().length === (restoredSplit ? 2 : 1));
+    if (restoredSplit) $('#panes-toggle').click();
+    await window.webkit.messageHandlers.testKey.postMessage({closeWindow: true});
+    await expect('The window can close after checking the saved view', () => $('#confirm').open);
+    return 'passed';
+  }
   const zoomTerminal = activeTerminal();
   const firstFamily = stack => stack.split(',')[0].trim().replaceAll('"', '');
   const terminalFamily = 'Minterm Mono';
@@ -639,6 +650,8 @@ try {
     await enter('/exit');
     await expect('Legacy shortcut agent exits', () => surface().dataset.state === 'ended');
   }
+  if ($('#panes-toggle').getAttribute('aria-pressed') === 'false') $('#panes-toggle').click();
+  await expect('Split View is active before restarting', () => panes().length > 1);
   await window.webkit.messageHandlers.testKey.postMessage({closeWindow: true});
   await expect('Closing the main window asks for confirmation', () =>
     $('#confirm').open && $('#confirm-title').textContent === 'Quit Minterm?');

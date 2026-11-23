@@ -69,6 +69,9 @@ pub enum Action {
     SaveInspector {
         state: crate::preferences::InspectorPreferences,
     },
+    SaveSplitView {
+        enabled: bool,
+    },
     Agents,
     Drag,
 }
@@ -253,6 +256,11 @@ impl App {
                     self.emit("notice", json!(error));
                 }
             }
+            Action::SaveSplitView { enabled } => {
+                if let Err(error) = crate::preferences::save_split_view(enabled) {
+                    self.emit("notice", json!(error));
+                }
+            }
             Action::StopListener { listener } if !self.stopping_listener => {
                 self.stopping_listener = true;
                 self.worker(move || {
@@ -350,6 +358,7 @@ fn ui_preferences() -> Value {
         "agentCommandsError": prefs.agent_commands_error,
         "shortcut": prefs.shortcut,
         "splitShortcut": prefs.split_shortcut,
+        "splitView": prefs.split_view,
         "newTabMode": prefs.new_tab_mode,
         "inspector": prefs.inspector
     })

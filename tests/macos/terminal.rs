@@ -110,10 +110,15 @@ printf 'fixture-private\tlocal/worker:1\trunning\t8080/tcp\n'
 
 fn main() {
     if env::args().nth(1).as_deref() == Some("--app") {
+        let restored_split = match env::var("QA_RESTORED_VIEW").as_deref() {
+            Ok("split-view") => "true",
+            Ok("tab-view") => "false",
+            _ => "null",
+        };
         minterm::launch(env::current_dir().unwrap(), false, |window, _| {
-            let script = CString::new(concat!(
+            let script = CString::new(format!(
+                "const restoredSplit = {restored_split};\n{}\n{}",
                 include_str!("preferences.js"),
-                "\n",
                 include_str!("terminal.js")
             ))
             .unwrap();
@@ -178,8 +183,8 @@ int main(void) {
             .success()
     );
 
-    let mut app = Command::new(env::current_exe().unwrap())
-        .arg("--app")
+    let mut app = Command::new(env::current_exe().unwrap());
+    app.arg("--app")
         .env_clear()
         .env("HOME", &home)
         .env("XDG_CONFIG_HOME", home.join("xdg-config"))
@@ -198,26 +203,26 @@ int main(void) {
             "DOCKER_HOST",
             format!("unix://{}/no-docker.sock", home.display()),
         )
-        .current_dir(&workspace)
-        .spawn()
-        .unwrap();
-    let deadline = Instant::now() + Duration::from_secs(45);
-    loop {
-        if let Some(status) = app.try_wait().unwrap() {
-            assert!(status.success(), "Window test exited with {status}");
-            break;
+        .current_dir(&workspace);
+    let passed = home.join("smoke-passed");
+    for view in ["initial", "split-view", "tab-view"] {
+        let mut child = app.env("QA_RESTORED_VIEW", view).spawn().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(45);
+        loop {
+            if let Some(status) = child.try_wait().unwrap() {
+                assert!(status.success(), "Window test exited with {status}");
+                break;
+            }
+            if Instant::now() >= deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("Timed out waiting for the hidden terminal integration test");
+            }
+            thread::sleep(Duration::from_millis(100));
         }
-        if Instant::now() >= deadline {
-            let _ = app.kill();
-            let _ = app.wait();
-            panic!("Timed out waiting for the hidden terminal integration test");
-        }
-        thread::sleep(Duration::from_millis(100));
+        assert!(passed.is_file(), "Window test did not finish for {view}");
+        fs::remove_file(&passed).unwrap();
     }
-    assert!(
-        home.join("smoke-passed").is_file(),
-        "Window test did not finish"
-    );
     assert_eq!(
         fs::read_to_string(nested.join("tested-cwd"))
             .unwrap()
