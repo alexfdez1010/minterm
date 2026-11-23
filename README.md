@@ -8,17 +8,19 @@ Run Codex, Claude Code and OpenCode side by side in one window. Jump from an age
 
 ## Install and open Minterm
 
-Minterm runs on **macOS 13 or later**. The downloadable app is built for **Apple Silicon**.
+### Download for Apple Silicon
 
-### 📦 Download the app
+[**Download the latest Minterm DMG**](https://github.com/alexfdez1010/minterm/releases/latest/download/Minterm-arm64.dmg)
 
-Download `Minterm-arm64.zip`, unzip it and move `Minterm.app` to Applications. [Download from GitHub Releases](https://github.com/alexfdez1010/minterm/releases)
+Requires an Apple Silicon Mac with macOS 13 or later. Sign in to GitHub with an account that has access to this private repository.
 
-The app is ad hoc signed. If macOS asks you to approve the first launch, open **System Settings → Privacy & Security** and follow the macOS instructions. [Apple’s instructions](https://support.apple.com/en-us/102445)
+1. Open the downloaded `Minterm-arm64.dmg`.
+2. Drag **Minterm** to **Applications**.
+3. Open **Minterm** from **Applications**.
 
-The current ZIP, `v0.1.0`, predates Split View. Use the source build below to try the workspace described here.
+The app uses ad hoc signing. If macOS blocks the first launch, go to **System Settings → Privacy & Security** after attempting to open Minterm. Choose **Open Anyway** if it appears. [Apple’s instructions](https://support.apple.com/en-us/102445)
 
-### 🛠️ Build from source
+### Build from source
 
 Install Rust 1.90 or later and the Xcode Command Line Tools (`xcode-select --install`). [Install Rust](https://rust-lang.org/tools/install/)
 
@@ -94,6 +96,6 @@ Open a GitHub issue for a bug or a feature idea. For terminal and shortcut bugs,
 
 ### Releases and bundled assets
 
-After a push to `main`, GitHub Actions compares the app source and build files with the latest release. If they changed, it increments the patch version, tests the app and publishes the Apple Silicon ZIP with a matching Git tag. Add `[release major]` to a commit message to increment the major version and reset the minor and patch numbers to zero. The workflow can also be run manually from `main` to publish pending app changes. [Release workflow](.github/workflows/release.yml)
+After a push to `main`, GitHub Actions compares the app source and build files with the latest release. If they changed, it increments the patch version, tests the app and publishes the Apple Silicon DMG with a matching Git tag. Add `[release major]` to a commit message to increment the major version and reset the minor and patch numbers to zero. The workflow can also be run manually from `main` to publish pending app changes. [Release workflow](.github/workflows/release.yml)
 
 The embedded renderer is xterm.js 6.0.0 with its fit addon 0.11.0. Martian Mono and Barlow ship under the SIL Open Font License. To regenerate the two Minterm Mono weights, run `uv run ui/fonts/build_minterm_mono.py`. [Renderer licenses](ui/vendor) · [Font licenses](ui/fonts)

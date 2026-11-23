@@ -64,9 +64,7 @@ jobs:
           plutil -replace CFBundleShortVersionString -string "$RELEASE_VERSION" macos/Info.plist
           plutil -replace CFBundleVersion -string "$GITHUB_RUN_NUMBER" macos/Info.plist
           cargo test --locked
-          ./macos/bundle.sh
-          test "$(lipo -archs dist/Minterm.app/Contents/MacOS/minterm)" = arm64
-          ditto -c -k --keepParent dist/Minterm.app dist/Minterm-arm64.zip
+          ./macos/bundle.sh --dmg
       - name: Publish release
         if: steps.version.outputs.number != ''
         env:
@@ -76,4 +74,4 @@ jobs:
         run: |
           gh release create "v$RELEASE_VERSION" --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" --latest --generate-notes --notes-start-tag "$PREVIOUS_TAG" \
-            dist/Minterm-arm64.zip
+            dist/Minterm-arm64.dmg

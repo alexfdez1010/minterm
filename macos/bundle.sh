@@ -4,14 +4,16 @@ set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root"
 out="$root/dist"
-if [[ $# -eq 1 && ${1:-} == --install ]]; then
-  out="$HOME/Applications"
-elif [[ $# -ne 0 ]]; then
-  echo "Usage: $0 [--install]" >&2
+mode=${1:-}
+if [[ $# -gt 1 || ( $# -eq 1 && $mode != --install && $mode != --dmg ) ]]; then
+  echo "Usage: $0 [--install | --dmg]" >&2
   exit 2
 fi
+if [[ $mode == --install ]]; then
+  out="$HOME/Applications"
+fi
 destination="$out/Minterm.app"
-if [[ ${1:-} == --install && ( -e "$destination" || -L "$destination" ) ]]; then
+if [[ $mode == --install && ( -e "$destination" || -L "$destination" ) ]]; then
   existing_id=$(plutil -extract CFBundleIdentifier raw -o - "$destination/Contents/Info.plist" 2>/dev/null || true)
   bundle_id=$(plutil -extract CFBundleIdentifier raw -o - macos/Info.plist)
   if [[ "$existing_id" != "$bundle_id" ]]; then
@@ -55,6 +57,23 @@ done
 iconutil --convert icns --output "$app/Contents/Resources/Minterm.icns" "$icons"
 codesign --force --sign - "$app"
 codesign --verify --strict "$app"
+
+if [[ $mode == --dmg ]]; then
+  if [[ $(lipo -archs "$app/Contents/MacOS/minterm") != arm64 ]]; then
+    echo "The distribution DMG requires an Apple Silicon build." >&2
+    exit 1
+  fi
+  image="$stage/image"
+  dmg=Minterm-arm64.dmg
+  mkdir "$image"
+  mv "$app" "$image/"
+  ln -s /Applications "$image/Applications"
+  hdiutil create -quiet -volname Minterm -srcfolder "$image" -fs HFS+ -format UDZO "$stage/$dmg"
+  hdiutil verify -quiet "$stage/$dmg"
+  mv -f "$stage/$dmg" "$out/$dmg"
+  printf '%s\n' "$out/$dmg"
+  exit 0
+fi
 
 if [[ -e "$destination" ]]; then
   mv "$destination" "$stage/previous.app"
