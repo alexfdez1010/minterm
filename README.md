@@ -60,6 +60,7 @@ Install and set up the CLI you want to use. To pick your default, open **Setting
 | ⌘K | Switch between a shell and its agent |
 | ⌘L | Toggle Split View |
 | ⌘1 through ⌘9 | Select a tab or pane by position |
+| ⌘← / ⌘→ | Focus the previous or next terminal, including in Split View |
 | ⌃Tab / ⌃⇧Tab | Select the next or previous tab |
 | ⌘⇧A | Open the running agents list |
 | ⌘I | Show or hide the local inspector |

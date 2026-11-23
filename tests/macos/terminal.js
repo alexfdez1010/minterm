@@ -219,6 +219,12 @@ try {
       await expect('Command-1 focuses the first pane and its original session', () =>
         selected() === first && document.activeElement === focusedTerminal() &&
         panes()[0].querySelector('[aria-current="true"]') && activeTerminal() === terminal);
+      if (!await key(124, '\uf703', command)) throw new Error('Shell menu did not receive Command-Right');
+      await expect('Command-Right focuses the next terminal in Split View', () =>
+        selected() === second && document.activeElement === focusedTerminal());
+      if (!await key(123, '\uf702', command)) throw new Error('Shell menu did not receive Command-Left');
+      await expect('Command-Left focuses the previous terminal in Split View', () =>
+        selected() === first && document.activeElement === focusedTerminal());
     }
     if (count === 3) {
       await expect('Three panes put the first terminal above two equal panes', () => {
@@ -308,6 +314,12 @@ try {
   await key(18, '&', command); // The unshifted Digit1 symbol on a French keyboard.
   await expect('Command-Digit1 also works with a nonnumeric layout symbol', () =>
     selected() === first && document.activeElement === $('.terminal-page.selected textarea.xterm-helper-textarea'));
+  await key(123, '\uf702', command);
+  await expect('Command-Left wraps from the first tab to the last', () =>
+    selected() === tabs().at(-1) && document.activeElement === focusedTerminal());
+  await key(124, '\uf703', command);
+  await expect('Command-Right wraps from the last tab to the first', () =>
+    selected() === first && document.activeElement === focusedTerminal());
   await key(48, '\t', control);
   await expect('Control-Tab changes tabs', () => selected() === tabs()[1]);
   await key(30, '}', command | shift);

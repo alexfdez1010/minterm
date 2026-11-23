@@ -30,18 +30,8 @@ pub fn install() -> muda::Result<(Menu, MenuItem, MenuItem)> {
             &MenuItem::with_id("newTerminalTab", "New Terminal Tab", true, None),
             &switch_mode,
             &item("close", "Close Tab", cmd, Code::KeyW),
-            &item(
-                "previous",
-                "Previous Tab",
-                cmd | Modifiers::SHIFT,
-                Code::BracketLeft,
-            ),
-            &item(
-                "next",
-                "Next Tab",
-                cmd | Modifiers::SHIFT,
-                Code::BracketRight,
-            ),
+            &item("previous", "Previous Tab", cmd, Code::ArrowLeft),
+            &item("next", "Next Tab", cmd, Code::ArrowRight),
         ],
     )?;
     let edit = Submenu::with_items(
