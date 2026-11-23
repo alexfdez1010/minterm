@@ -94,6 +94,6 @@ Open a GitHub issue for a bug or a feature idea. For terminal and shortcut bugs,
 
 ### Releases and bundled assets
 
-To publish a release, update the version in `Cargo.toml`, `Cargo.lock` and `macos/Info.plist`, then push the matching version tag. GitHub Actions tests and packages the Apple Silicon build before publishing the ZIP. [Release workflow](.github/workflows/release.yml)
+After a push to `main`, GitHub Actions compares the app source and build files with the latest release. If they changed, it increments the patch version, tests the app and publishes the Apple Silicon ZIP with a matching Git tag. Add `[release major]` to a commit message to increment the major version and reset the minor and patch numbers to zero. The workflow can also be run manually from `main` to publish pending app changes. [Release workflow](.github/workflows/release.yml)
 
 The embedded renderer is xterm.js 6.0.0 with its fit addon 0.11.0. Martian Mono and Barlow ship under the SIL Open Font License. To regenerate the two Minterm Mono weights, run `uv run ui/fonts/build_minterm_mono.py`. [Renderer licenses](ui/vendor) · [Font licenses](ui/fonts)

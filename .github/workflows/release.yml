@@ -2,20 +2,17 @@ name: Release macOS
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - main
   workflow_dispatch:
-    inputs:
-      tag:
-        description: Existing release tag, e.g. v0.1.0
-        required: true
-        type: string
 
-env:
-  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+concurrency:
+  group: release-macos
+  queue: max
 
 jobs:
   release:
+    if: github.ref == 'refs/heads/main'
     runs-on: macos-15
     permissions:
       contents: write
@@ -24,23 +21,59 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: refs/tags/${{ env.RELEASE_TAG }}
+          fetch-depth: 0
           persist-credentials: false
-      - name: Check release version
+      - name: Determine release version
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          version=$(plutil -extract CFBundleShortVersionString raw -o - macos/Info.plist)
-          test "$RELEASE_TAG" = "v$version"
+          previous=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq '.tag_name')
+          if [[ ! $previous =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "Expected a stable release tag, got $previous" >&2
+            exit 1
+          fi
+          major=${BASH_REMATCH[1]} minor=${BASH_REMATCH[2]} patch=${BASH_REMATCH[3]}
+          base=$(git rev-parse "refs/tags/$previous^{commit}")
+          if git merge-base --is-ancestor HEAD "$base"; then
+            echo "This commit is already included in $previous."
+            exit 0
+          fi
+          changes=$(git diff --name-only "$base" HEAD -- Cargo.toml Cargo.lock build.rs config macos shell src ui)
+          if [[ -z $changes ]]; then
+            echo "No app changes since $previous."
+            exit 0
+          fi
+          marker=$(git log -1 --format=%H --fixed-strings --grep='[release major]' "$base..HEAD")
+          if [[ -n $marker ]]; then
+            version="$((major + 1)).0.0"
+          else
+            version="$major.$minor.$((patch + 1))"
+          fi
+          printf 'number=%s\nprevious=%s\n' "$version" "$previous" >> "$GITHUB_OUTPUT"
       - name: Test and package
+        if: steps.version.outputs.number != ''
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.number }}
         run: |
           rustup toolchain install stable --profile minimal
           rustup default stable
+          # Stamp the runner's checkout before building and signing the bundle.
+          sed -i '' -e '/^\[package\]/,/^\[/ s/^version = .*/version = "'"$RELEASE_VERSION"'"/' Cargo.toml
+          sed -i '' -e '/^name = "minterm"$/ { n; s/^version = .*/version = "'"$RELEASE_VERSION"'"/; }' Cargo.lock
+          plutil -replace CFBundleShortVersionString -string "$RELEASE_VERSION" macos/Info.plist
+          plutil -replace CFBundleVersion -string "$GITHUB_RUN_NUMBER" macos/Info.plist
           cargo test --locked
           ./macos/bundle.sh
           test "$(lipo -archs dist/Minterm.app/Contents/MacOS/minterm)" = arm64
           ditto -c -k --keepParent dist/Minterm.app dist/Minterm-arm64.zip
       - name: Publish release
+        if: steps.version.outputs.number != ''
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ steps.version.outputs.number }}
+          PREVIOUS_TAG: ${{ steps.version.outputs.previous }}
         run: |
-          gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
-            --verify-tag --generate-notes dist/Minterm-arm64.zip
+          gh release create "v$RELEASE_VERSION" --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" --latest --generate-notes --notes-start-tag "$PREVIOUS_TAG" \
+            dist/Minterm-arm64.zip
