@@ -45,6 +45,9 @@ pub fn launch(
         .with_traffic_light_inset(LogicalPosition::new(18., 18.))
         .build(&event_loop)?;
     let (menu, switch_mode, panes) = menu::install()?;
+    if visible {
+        settings::automatic_updates(preferences::read_general().automatic_updates, true);
+    }
     let proxy = event_loop.create_proxy();
     settings::notify_changes(proxy.clone());
     let menu_proxy = proxy.clone();
@@ -96,6 +99,9 @@ pub fn launch(
             Event::UserEvent(Message::Menu(name)) if name == "settings" => settings::show(&window),
             Event::UserEvent(Message::Preferences) => {
                 let prefs = preferences::read_general();
+                if visible {
+                    settings::automatic_updates(prefs.automatic_updates, false);
+                }
                 let _ = switch_mode.set_key_accelerator(preferences::accelerator(&prefs.shortcut));
                 let _ = panes.set_key_accelerator(preferences::accelerator(&prefs.split_shortcut));
                 app.receive(Message::Preferences);

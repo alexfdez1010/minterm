@@ -39,10 +39,14 @@ binary=$(
     plutil -extract executable raw -o - -- -
 )
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+sparkle=$(./macos/sparkle.sh)
+mkdir -p "$app/Contents/Frameworks"
+ditto "$sparkle/Sparkle.framework" "$app/Contents/Frameworks/Sparkle.framework"
 install -m 0755 "$binary" "$app/Contents/MacOS/minterm"
 notices="$app/Contents/Resources/Licenses"
 mkdir -p "$notices"
 cp ui/fonts/*-OFL.txt ui/vendor/*-LICENSE "$notices/"
+cp "$sparkle/LICENSE" "$notices/Sparkle-LICENSE"
 cp macos/Info.plist "$app/Contents/Info.plist"
 plutil -lint "$app/Contents/Info.plist"
 
@@ -56,7 +60,7 @@ for points in 16 32 128 256 512; do
 done
 iconutil --convert icns --output "$app/Contents/Resources/Minterm.icns" "$icons"
 codesign --force --sign - "$app"
-codesign --verify --strict "$app"
+codesign --verify --deep --strict "$app"
 
 if [[ $mode == --dmg ]]; then
   if [[ $(lipo -archs "$app/Contents/MacOS/minterm") != arm64 ]]; then

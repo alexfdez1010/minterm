@@ -4,7 +4,7 @@
 extern void minterm_refresh_settings(void);
 
 static NSSize paneSize(NSString *identifier) {
-    return [identifier isEqual:@"Commands"] ? NSMakeSize(812, 320) : NSMakeSize(480, 176);
+    return [identifier isEqual:@"Commands"] ? NSMakeSize(812, 320) : NSMakeSize(480, 210);
 }
 
 @interface MTSettingsController : NSObject <NSWindowDelegate, NSTabViewDelegate>

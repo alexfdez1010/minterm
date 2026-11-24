@@ -30,7 +30,7 @@ cd minterm
 ./macos/bundle.sh --install && open "$HOME/Applications/Minterm.app"
 ```
 
-The script builds, signs and installs the app in `~/Applications`. To update, quit Minterm, pull the latest changes and rerun the last command. To open a particular project, run the installed executable from that project’s directory.
+The script builds, signs and installs the app in `~/Applications`. To open a particular project, run the installed executable from that project’s directory. Automatic updates are off by default; enable them under Settings → General → Updates to download and install signed releases. Updates are applied when Minterm quits. You can also update manually by installing the latest DMG or rebuilding from source.
 
 ```sh
 "$HOME/Applications/Minterm.app/Contents/MacOS/minterm" "$PWD"
@@ -98,5 +98,7 @@ Open a GitHub issue for a bug or a feature idea. For terminal and shortcut bugs,
 ### Releases and bundled assets
 
 After a push to `main`, GitHub Actions compares the app source and build files with the latest release. If they changed, it increments the patch version, tests the app and publishes the Apple Silicon DMG with a matching Git tag. Add `[release major]` to a commit message to increment the major version and reset the minor and patch numbers to zero. The workflow can also be run manually from `main` to publish pending app changes. [Release workflow](.github/workflows/release.yml)
+
+The release workflow signs both the update feed and DMG with the `SPARKLE_PRIVATE_KEY` repository secret. The corresponding key is stored in the login keychain under the Sparkle account `minterm`; keep a secure backup, since losing it prevents existing installations from accepting future automatic updates. The repository and its releases must be public for automatic checks to work without credentials. Builds download the pinned Sparkle framework and verify its SHA-256 digest.
 
 The embedded renderer is xterm.js 6.0.0 with its fit addon 0.11.0. Martian Mono and Barlow ship under the SIL Open Font License. To regenerate the two Minterm Mono weights, run `uv run ui/fonts/build_minterm_mono.py`. [Renderer licenses](ui/vendor) · [Font licenses](ui/fonts)

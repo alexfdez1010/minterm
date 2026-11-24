@@ -18,6 +18,7 @@ pub struct Preferences {
     pub shortcut: String,
     pub split_shortcut: String,
     pub split_view: bool,
+    pub automatic_updates: bool,
     pub new_tab_mode: String,
     pub inspector: InspectorPreferences,
     #[serde(skip_serializing)]
@@ -97,6 +98,7 @@ impl Default for Preferences {
             shortcut: "⌘K".into(),
             split_shortcut: "⌘L".into(),
             split_view: false,
+            automatic_updates: false,
             new_tab_mode: "terminal".into(),
             inspector: InspectorPreferences::default(),
             codex_path: String::new(),
@@ -224,6 +226,13 @@ pub fn update(field: &str, value: &str) -> Result<(), String> {
 }
 
 fn update_at(path: &Path, field: &str, value: &str) -> Result<(), String> {
+    if field == "automaticUpdates" {
+        return match value {
+            "true" => save_at(path, field, true.into()),
+            "false" => save_at(path, field, false.into()),
+            _ => Err("This setting is invalid.".into()),
+        };
+    }
     save_at(path, field, validated_value(field, value)?.into())
 }
 
@@ -262,6 +271,18 @@ fn save_at(path: &Path, field: &str, value: serde_json::Value) -> Result<(), Str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn automatic_updates_are_opt_in_and_persist() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("prefs.json");
+        assert!(!load(b"{}").unwrap().automatic_updates);
+        update_at(&path, "automaticUpdates", "true").unwrap();
+        assert!(load(&fs::read(&path).unwrap()).unwrap().automatic_updates);
+        assert!(update_at(&path, "automaticUpdates", "yes").is_err());
+        update_at(&path, "automaticUpdates", "false").unwrap();
+        assert!(!load(&fs::read(&path).unwrap()).unwrap().automatic_updates);
+    }
 
     #[test]
     fn inspector_state_survives_other_preference_updates() {

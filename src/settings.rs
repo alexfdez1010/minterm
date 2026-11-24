@@ -10,6 +10,11 @@ unsafe extern "C" {
     fn minterm_settings_reload(prefs: *const c_char);
     fn minterm_reveal_agent_commands(path: *const c_char);
     fn minterm_settings_close_if_key() -> bool;
+    fn minterm_set_automatic_updates(enabled: bool, check_now: bool);
+}
+
+pub fn automatic_updates(enabled: bool, check_now: bool) {
+    unsafe { minterm_set_automatic_updates(enabled, check_now) };
 }
 
 type Change = unsafe extern "C" fn(*const c_char, *const c_char, *mut c_char, usize) -> bool;

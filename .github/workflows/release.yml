@@ -65,6 +65,12 @@ jobs:
           plutil -replace CFBundleVersion -string "$GITHUB_RUN_NUMBER" macos/Info.plist
           cargo test --locked
           ./macos/bundle.sh --dmg
+      - name: Sign update feed
+        if: steps.version.outputs.number != ''
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          RELEASE_VERSION: ${{ steps.version.outputs.number }}
+        run: ./macos/release-appcast.sh
       - name: Publish release
         if: steps.version.outputs.number != ''
         env:
@@ -74,4 +80,4 @@ jobs:
         run: |
           gh release create "v$RELEASE_VERSION" --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" --latest --generate-notes --notes-start-tag "$PREVIOUS_TAG" \
-            dist/Minterm-arm64.dmg
+            dist/Minterm-arm64.dmg dist/appcast.xml
