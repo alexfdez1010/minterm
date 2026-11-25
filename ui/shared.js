@@ -9,6 +9,7 @@ export const send = (action, values = {}) =>
   window.ipc.postMessage(JSON.stringify({ action, ...values }));
 const paths = {
   plus: "M12 5v14M5 12h14",
+  folder: "M3 7V5h7l2 2h9v12H3V7Z",
   robot: "M12 2v3M5 6h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2Zm3 5v2m8-2v2m-7 3h6",
   close: "m6 6 12 12M18 6 6 18",
   terminal: "m4 6 6 6-6 6m9 0h6",

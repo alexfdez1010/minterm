@@ -48,6 +48,7 @@ Install and set up the CLI you want to use. To pick your default, open **Setting
 
 - **Keep several sessions in view.** Split View tiles your open tabs. Add another agent, keep build output beside it or return to one tab while everything keeps running.
 - **Find the session that needs you.** Press **⌘⇧A** to open the running agents list. The inspector recognizes Codex, Claude Code and OpenCode started from the shell too. Select a session marked **Input requested** to answer in its terminal.
+- **Return to a project.** Click **Projects** or press **⌘⇧P** to search the folders you visit most over seven days and open a terminal there. [How projects are counted](docs/workspace.md#projects)
 - **See what’s running locally.** The inspector shows listening TCP ports and optional Docker mappings. Tabs show the working directory and Git ref on hover, and zsh and Bash can show them in the prompt.
 
 [Workspace guide](docs/workspace.md#the-terminal-workspace)
@@ -57,6 +58,7 @@ Install and set up the CLI you want to use. To pick your default, open **Setting
 | Shortcut | Action |
 | --- | --- |
 | ⌘T | Open a tab in the active session’s directory |
+| ⌘⇧P | Find a frequent project and open a terminal there |
 | ⌘K | Switch between a shell and its agent |
 | ⌘L | Toggle Split View |
 | ⌘1 through ⌘9 | Select a tab or pane by position |

@@ -19,6 +19,7 @@ The fonts ship locally. Wait for both terminal weights before measuring the firs
 ## Components and layout
 
 - Tabs share the native title bar with the new-tab and tool buttons. Icon buttons have an accessible name and a tooltip. The active tab has a filled surface and `aria-selected`. On hover or keyboard focus, the close button uses the same light surface and dark cross on active and inactive tabs.
+- Projects opens a searchable dialog from the title bar or the native Shell menu. Rank folders by visits over seven days, show the path to distinguish identical names, and open the selection in a new shell. Escape restores terminal focus without changing the current session.
 - The shell prompt on zsh and Bash uses the working directory, an optional Git ref and a chevron. Blue marks the directory, green marks the branch, and amber indicates a failed command. Keep prompt segments within the terminal cell grid.
 - The terminal starts directly below the tabs. A tab tooltip carries the full path and tracked changes even while a full-screen CLI covers the prompt. An exited shell gets a recovery action next to its session.
 - The inspector uses disclosure controls. On first launch, Agents starts expanded and Ports starts closed. Minterm remembers the inspector visibility, both disclosure states and the port filter. It combines local listeners and Docker port mappings in one scan and one list. On narrower windows the inspector overlays the terminal so full-screen CLI layouts retain their width.

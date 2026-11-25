@@ -78,6 +78,10 @@ try {
   await expect('First shell and its Git branch', () => tabs().length === 1 &&
     $('.terminal-page.selected')?.dataset.state === 'live' && selected().title.includes('main') && selected().title.includes('/workspace'));
   if (restoredSplit !== null) {
+    $('#projects-toggle').click();
+    await expect('Project history survives an app restart', () =>
+      [...document.querySelectorAll('#project-list button')].some(button => button.dataset.path.endsWith('/command-target')));
+    await key(53, '\x1b');
     await expect('The previous view is restored with one terminal', () => panes().length === 1 &&
       $('#panes-toggle').getAttribute('aria-pressed') === String(restoredSplit));
     await key(17, 't', command);
@@ -88,6 +92,40 @@ try {
     await expect('The window can close after checking the saved view', () => $('#confirm').open);
     return 'passed';
   }
+  const originalProjectTab = selected();
+  if (!await key(35, 'P', command | shift, 'p')) throw new Error('Shell menu did not receive Command-Shift-P');
+  await expect('Projects opens with the learned repository', () => $('#projects-dialog').open &&
+    $('#project-list button')?.dataset.path.endsWith('/workspace') && document.activeElement === $('#project-search'));
+  const visitsBefore = $('#project-list .project-visits').textContent;
+  await type('no-such-project');
+  await expect('Search has a useful empty state', () => !$('#project-list button') &&
+    !$('#projects-empty').hidden && $('#projects-empty').textContent.includes('match'));
+  await key(53, '\x1b');
+  await expect('Escape returns focus to the original shell', () => !$('#projects-dialog').open &&
+    selected() === originalProjectTab && document.activeElement === focusedTerminal());
+  $('#projects-toggle').click();
+  await expect('Refreshing Projects does not add visits', () => $('#project-list .project-visits')?.textContent === visitsBefore);
+  await type('workspace');
+  await key(125, '\uf701');
+  await expect('Down arrow focuses the first project', () => document.activeElement === $('#project-list button'));
+  await key(36, '\r');
+  await expect('Selecting a project opens a new live shell', () => tabs().length === 2 &&
+    !$('#projects-dialog').open && $('.terminal-page.selected')?.dataset.state === 'live' &&
+    selected().title.includes('/workspace'));
+  const projectShell = activeTerminal();
+  await enter('printf "project-started\\n"; sleep 1; cd "$HOME/command-target"; printf "background-project-ready\\n"');
+  await expect('The new project shell accepts keyboard input', () => rows(projectShell).includes('project-started'));
+  originalProjectTab.click();
+  await expect('The background shell changed directories', () => rows(projectShell).includes('background-project-ready'));
+  await pause(2200);
+  $('#projects-toggle').click();
+  await expect('A directory visited in a background tab is learned', () =>
+    [...document.querySelectorAll('#project-list button')].some(button => button.dataset.path.endsWith('/command-target')));
+  await key(53, '\x1b');
+  await key(124, '\uf703', command);
+  await key(13, 'w', command);
+  await expect('Closing the new project preserves the source session', () => tabs().length === 1 &&
+    selected() === originalProjectTab && document.activeElement === focusedTerminal());
   const zoomTerminal = activeTerminal();
   const firstFamily = stack => stack.split(',')[0].trim().replaceAll('"', '');
   const terminalFamily = 'Minterm Mono';

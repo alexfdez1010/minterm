@@ -28,6 +28,12 @@ pub fn install() -> muda::Result<(Menu, MenuItem, MenuItem)> {
             &item("new", "New Tab", cmd, Code::KeyT),
             &MenuItem::with_id("newAgentTab", "New Agent Tab", true, None),
             &MenuItem::with_id("newTerminalTab", "New Terminal Tab", true, None),
+            &item(
+                "projects",
+                "Open Project…",
+                cmd | Modifiers::SHIFT,
+                Code::KeyP,
+            ),
             &switch_mode,
             &item("close", "Close Tab", cmd, Code::KeyW),
             &item("previous", "Previous Tab", cmd, Code::ArrowLeft),

@@ -6,6 +6,7 @@ mod assets;
 mod inspect;
 mod menu;
 mod preferences;
+mod projects;
 mod prompt;
 mod sessions;
 mod settings;

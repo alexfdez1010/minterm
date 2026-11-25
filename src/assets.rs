@@ -37,6 +37,7 @@ pub fn serve(_: wry::WebViewId<'_>, request: Request<Vec<u8>>) -> Response<Cow<'
         "/shared.js" => ("text/javascript", include_bytes!("../ui/shared.js")),
         "/terminal-input.js" => ("text/javascript", include_bytes!("../ui/terminal-input.js")),
         "/app.js" => ("text/javascript", include_bytes!("../ui/app.js")),
+        "/projects.js" => ("text/javascript", include_bytes!("../ui/projects.js")),
         "/vendor/xterm.js" => ("text/javascript", include_bytes!("../ui/vendor/xterm.js")),
         "/vendor/addon-fit.js" => (
             "text/javascript",

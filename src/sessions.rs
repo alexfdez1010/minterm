@@ -400,7 +400,7 @@ fn size(cols: u16, rows: u16) -> PtySize {
     }
 }
 
-fn process_cwd(pid: i32) -> Option<PathBuf> {
+pub(crate) fn process_cwd(pid: i32) -> Option<PathBuf> {
     let mut info = MaybeUninit::<libc::proc_vnodepathinfo>::zeroed();
     let len = size_of::<libc::proc_vnodepathinfo>() as i32;
     let written = unsafe {

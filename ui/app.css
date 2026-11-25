@@ -670,3 +670,82 @@ details[open] summary i:last-child svg {
   background: var(--canvas);
   caret-color: var(--mint);
 }
+
+#projects-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-size);
+  padding: 0 var(--space-2);
+  color: var(--muted);
+  font-size: var(--type-label);
+}
+#projects-dialog {
+  width: min(520px, calc(100vw - 48px));
+  max-width: none;
+  max-height: calc(100vh - 80px);
+  padding: var(--space-4);
+}
+.projects-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+.projects-period {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: var(--type-label);
+}
+#project-list {
+  list-style: none;
+  padding: 0;
+  margin: var(--space-2) 0 0;
+  max-height: min(390px, calc(100vh - 260px));
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+#project-list:empty {
+  margin: 0;
+}
+.project-link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: 58px;
+  padding: var(--space-2);
+  text-align: left;
+}
+.project-link:focus-visible {
+  outline-offset: -2px;
+  background: var(--surface-accent);
+}
+.project-link > i {
+  color: var(--mint);
+}
+.project-copy {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  flex: 1;
+}
+.project-copy strong {
+  font-size: var(--type-body);
+  font-weight: 600;
+}
+.project-copy small {
+  color: var(--muted);
+  font: 10px/1.5 var(--mono);
+}
+.project-copy :is(strong, small) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-visits {
+  flex: none;
+  color: var(--muted);
+  font-size: var(--type-label);
+  font-variant-numeric: tabular-nums;
+}

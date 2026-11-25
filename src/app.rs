@@ -1,5 +1,5 @@
 use crate::{
-    agents, inspect,
+    agents, inspect, projects,
     sessions::{SessionEvent, Sessions},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
@@ -9,6 +9,7 @@ use std::{
     collections::{HashMap, HashSet},
     env,
     path::{Path, PathBuf},
+    sync::mpsc::Sender,
     thread,
 };
 use tao::event_loop::EventLoopProxy;
@@ -73,6 +74,13 @@ pub enum Action {
         enabled: bool,
     },
     Agents,
+    Projects,
+    OpenProject {
+        id: u32,
+        path: PathBuf,
+        cols: u16,
+        rows: u16,
+    },
     Drag,
 }
 
@@ -85,6 +93,13 @@ pub enum Message {
     Services(Value),
     ListenerStopped(Option<String>),
     Agents(Value),
+    Projects(Value),
+    ProjectDirectory {
+        id: u32,
+        directory: Result<PathBuf, String>,
+        cols: u16,
+        rows: u16,
+    },
 }
 
 struct Companion {
@@ -96,6 +111,8 @@ pub struct App {
     view: WebView,
     proxy: EventLoopProxy<Message>,
     sessions: Sessions,
+    projects: Sender<projects::Request>,
+    opening_projects: HashSet<u32>,
     // Each logical tab can own a shell and a second PTY running a live agent.
     companions: HashMap<u32, Companion>,
     start_dir: PathBuf,
@@ -114,6 +131,8 @@ impl App {
             let _ = output.send_event(Message::Shell(event));
         });
         Self {
+            projects: projects::start(proxy.clone()),
+            opening_projects: HashSet::new(),
             view,
             proxy,
             sessions,
@@ -160,6 +179,24 @@ impl App {
                 cols,
                 rows,
             } => self.open(id, from, cols, rows),
+            Action::Projects => {
+                let _ = self.projects.send(projects::Request::List);
+            }
+            Action::OpenProject {
+                id,
+                path,
+                cols,
+                rows,
+            } => {
+                if !self.last_dirs.contains_key(&id) && self.opening_projects.insert(id) {
+                    let _ = self.projects.send(projects::Request::Open {
+                        id,
+                        path,
+                        cols,
+                        rows,
+                    });
+                }
+            }
             Action::OpenAgent {
                 id,
                 from,
@@ -212,11 +249,13 @@ impl App {
                 {
                     self.emit("confirm", json!({"id":id}));
                 } else {
+                    self.opening_projects.remove(&id);
                     if let Some(child) = self.companions.remove(&id) {
                         self.sessions.close(child.id);
                         self.last_dirs.remove(&child.id);
                     }
                     self.sessions.close(id);
+                    self.track_project_shells();
                     self.last_dirs.remove(&id);
                     self.emit("closed", json!({"id":id}));
                 }
@@ -235,6 +274,7 @@ impl App {
                 }
             }
             Action::Context { id } => {
+                self.track_project_shells();
                 if !self.contexts.contains(&id)
                     && let Some(cwd) = self
                         .sessions
@@ -291,10 +331,25 @@ impl App {
 
     fn open(&mut self, id: u32, from: Option<u32>, cols: u16, rows: u16) {
         let directory = self.directory_for(from);
+        self.open_directory(id, directory, cols, rows);
+    }
+
+    fn track_project_shells(&self) {
+        let shells = self
+            .sessions
+            .shell_pids()
+            .into_iter()
+            .filter(|(id, _)| !self.companions.values().any(|child| child.id == *id))
+            .collect();
+        let _ = self.projects.send(projects::Request::Shells(shells));
+    }
+
+    fn open_directory(&mut self, id: u32, directory: PathBuf, cols: u16, rows: u16) {
         match self.sessions.open(id, &directory, cols, rows) {
             Ok(()) => {
                 self.emit("opened", json!({"id": id, "path": short_path(&directory)}));
                 self.last_dirs.insert(id, directory);
+                self.track_project_shells();
             }
             Err(error) => self.emit("failed", json!({"id": id, "error": error})),
         }
@@ -322,9 +377,24 @@ impl App {
                     child.live = false;
                 }
                 self.sessions.close(id);
+                self.track_project_shells();
                 self.emit("exited", json!({"id":id,"status":status,"success":success}));
             }
             Message::Menu(name) => self.emit("menu", json!(name)),
+            Message::Projects(value) => self.emit("projects", value),
+            Message::ProjectDirectory {
+                id,
+                directory,
+                cols,
+                rows,
+            } => {
+                if self.opening_projects.remove(&id) {
+                    match directory {
+                        Ok(directory) => self.open_directory(id, directory, cols, rows),
+                        Err(error) => self.emit("failed", json!({"id":id,"error":error})),
+                    }
+                }
+            }
             Message::Context(id, value) => {
                 self.contexts.remove(&id);
                 self.emit("context", value);

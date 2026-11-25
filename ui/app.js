@@ -8,6 +8,7 @@ import { Activity } from "./activity.js";
 import { theme, terminalFont, defaultFontSize, loadTerminalFonts } from "./theme.js";
 import { CommandMode } from "./command.js";
 import { fixTerminalInput } from "./terminal-input.js";
+import { Projects } from "./projects.js";
 
 const tabs = new Map();
 const sessions = new Map();
@@ -27,6 +28,7 @@ const currentTab = () => tabs.get(active);
 const visibleSession = (tab) => (tab?.mode === "agent" ? tab.companion : tab?.base);
 const current = () => visibleSession(currentTab());
 const commandMode = new CommandMode(currentTab, openInteractive, toggleCommand, notice);
+const projects = new Projects((path) => newTab(undefined, undefined, "terminal", path), focusSession);
 function focusSession() {
   if (currentTab()?.mode === "compose") $("command-input").focus();
   else current()?.term.focus();
@@ -286,7 +288,7 @@ function createSession(id, tabId, body, kind, source) {
   });
   return session;
 }
-function newTab(task, from = current()?.id, mode = commandMode.newTabMode) {
+function newTab(task, from = current()?.id, mode = commandMode.newTabMode, projectPath) {
   if (!startPath) return;
   if (tabs.size && (task || mode === "agent") && !commandMode.canLaunch(task?.agent || commandMode.agent)) return;
   const id = nextId++;
@@ -336,7 +338,8 @@ function newTab(task, from = current()?.id, mode = commandMode.newTabMode) {
   layoutPanes();
   selectTab(id);
   if (split) fitVisible();
-  send("open", { id, from, cols: base.term.cols, rows: base.term.rows });
+  if (projectPath) send("openProject", { id, path: projectPath, cols: base.term.cols, rows: base.term.rows });
+  else send("open", { id, from, cols: base.term.cols, rows: base.term.rows });
   if (task || mode === "agent")
     openInteractive(tab, task?.agent || commandMode.agent, task?.prompt || "");
   return tab;
@@ -452,6 +455,9 @@ function command(name) {
   switch (name) {
     case "newTerminalTab":
       newTab(undefined, undefined, "terminal");
+      break;
+    case "projects":
+      projects.open();
       break;
     case "newAgentTab":
       newTab(undefined, undefined, "agent");
@@ -588,6 +594,9 @@ window.minterm = {
         break;
       case "services":
         receiveServices(data);
+        break;
+      case "projects":
+        projects.receive(data);
         break;
       case "listenerStopped":
         listenerStopped();

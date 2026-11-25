@@ -16,6 +16,12 @@ In zsh 5.9 or later, the first suggestion appears in gray as you type. Press Rig
 
 Minterm disables macOS inline text predictions in terminal and task fields so suggestions cannot repeat characters already sent to a shell or agent.
 
+### Projects
+
+Click **Projects** or press **⌘⇧P** to open a new terminal in a frequently visited folder. Search by name or path, then press Return or select a row. Projects are ranked by visits during the last seven days, with recent visits breaking ties. Subfolders of a Git repository count toward its root, including Git worktrees; other folders count individually. Home and filesystem root are excluded.
+
+Minterm learns from its own shell sessions, including background tabs, starting with this version. A visit is opening a shell in a folder or entering a different project; repeated checks and movement within the same repository do not add visits. Directory changes are sampled every two seconds and when terminal context refreshes, so very brief visits can be missed. History stays on this Mac in `~/Library/Application Support/minterm/projects.json` (or `$XDG_STATE_HOME/minterm/projects.json`), expires after seven days and retains at most 4,096 visits.
+
 ### Local inspector
 
 Minterm opens the inspector with **Agents** expanded on first launch. Select a session to focus its terminal, or use **Agents → +** to open an agent in a new tab. Leave **Task** empty for an interactive session or enter a task to send at launch. Minterm detects agent activity locally and marks recognizable confirmation prompts as **Input requested**.

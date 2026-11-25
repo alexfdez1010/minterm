@@ -38,6 +38,10 @@
       </div>
       <div class="drag-space"></div>
       <div class="tools">
+        <button id="projects-toggle" type="button" title="Open project (⌘⇧P)"
+          aria-haspopup="dialog" aria-controls="projects-dialog">
+          <i data-icon="folder"></i><span>Projects</span>
+        </button>
         <button
           id="panes-toggle"
           class="icon"
@@ -147,6 +151,20 @@
       </aside>
     </main>
     <div id="notice" role="status" hidden></div>
+    <dialog id="projects-dialog" aria-labelledby="projects-title">
+      <div class="projects-heading">
+        <h2 id="projects-title">Projects</h2>
+        <span class="projects-period">Last 7 days</span>
+        <button id="projects-close" class="icon" type="button" aria-label="Close projects" title="Close projects (Esc)">
+          <i data-icon="close"></i>
+        </button>
+      </div>
+      <input id="project-search" type="search" aria-label="Find a project" placeholder="Find a project"
+        autocomplete="off" spellcheck="false" autofocus aria-controls="project-list" />
+      <ul id="project-list" aria-label="Projects by visit count"></ul>
+      <p id="projects-empty" class="empty" role="status">Loading projects…</p>
+      <p id="projects-error" class="empty" role="status" hidden></p>
+    </dialog>
     <dialog id="agent-launch" class="agent-dialog" aria-labelledby="agent-launch-title">
       <form id="agent-launch-form">
         <h2 id="agent-launch-title">Start agent</h2>
