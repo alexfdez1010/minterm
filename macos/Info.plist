@@ -32,11 +32,5 @@
   <string>https://github.com/alexfdez1010/minterm/releases/latest/download/appcast.xml</string>
   <key>SUPublicEDKey</key>
   <string>xUy71JGff1G4f26bDRCAB9p42lwflTNRq1gju62zZJo=</string>
-  <key>SUEnableAutomaticChecks</key>
-  <false/>
-  <key>SUVerifyUpdateBeforeExtraction</key>
-  <true/>
-  <key>SURequireSignedFeed</key>
-  <true/>
 </dict>
 </plist>

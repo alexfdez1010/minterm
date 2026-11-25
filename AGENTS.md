@@ -25,6 +25,7 @@ For local development, `./macos/bundle.sh` builds the signed app in `dist/Minter
 | Interactive agent executable resolution and launch | `src/agent_cli.rs`, `src/sessions.rs` |
 | Local agent activity and launch dialog | `ui/activity.js`, `ui/agents.js` |
 | Agent profiles, preferences and native Settings | `config/agents.toml`, `src/agent_config.rs`, `src/preferences.rs`, `macos/preferences.m`, `macos/agent_commands.m` |
+| Startup updates and bundle replacement | `src/updater.rs`, `ui/update.html`, `ui/update.js`, `ui/update.css` |
 | Tabs, agent mode and inspector | `ui/app.js`, `ui/command.js`, `ui/inspector.js`, `ui/app.css` |
 
 Use [DESIGN.md](DESIGN.md) and the tokens in `ui/tokens.css` when extending the workspace.

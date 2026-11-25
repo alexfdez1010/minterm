@@ -30,7 +30,7 @@ cd minterm
 ./macos/bundle.sh --install && open "$HOME/Applications/Minterm.app"
 ```
 
-The script builds, signs and installs the app in `~/Applications`. To open a particular project, run the installed executable from that project’s directory. Automatic updates are off by default; enable them under Settings → General → Updates to download and install signed releases. Updates are applied when Minterm quits. You can also update manually by installing the latest DMG or rebuilding from source.
+The script builds, signs and installs the app in `~/Applications`. To open a particular project, run the installed executable from that project’s directory. Automatic updates are off by default; enable **Update on startup** under Settings → General → Updates. Before opening terminal sessions, Minterm checks for a new release, shows download progress, verifies its signature and installs it with an automatic restart in the requested directory. Choose **Open Minterm** to skip the update or continue after an error. You can also update manually by installing the latest DMG or rebuilding from source.
 
 ```sh
 "$HOME/Applications/Minterm.app/Contents/MacOS/minterm" "$PWD"
@@ -94,6 +94,8 @@ cargo test --locked --features ui-tests --test macos-ui
 
 The last command drives AppKit and WebKit in a logged-in macOS session with an isolated home.
 
+Run `./macos/bundle.sh && uv run tests/macos/updater.py` to test startup updates with an isolated app, a local signed feed and a temporary signing key. It checks that an up-to-date app opens its terminal and that an available update installs and relaunches before any terminal starts.
+
 ### 🤝 Contributing
 
 Open a GitHub issue for a bug or a feature idea. For terminal and shortcut bugs, include your macOS version, shell, reproduction steps and the agent CLI involved, if any. For a pull request, describe the behavior you changed and the checks you ran. [GitHub Issues](https://github.com/alexfdez1010/minterm/issues) · [Repository guide](AGENTS.md) · [Design system](DESIGN.md)
@@ -102,6 +104,8 @@ Open a GitHub issue for a bug or a feature idea. For terminal and shortcut bugs,
 
 After a push to `main`, GitHub Actions compares the app source and build files with the latest release. If they changed, it increments the patch version, tests the app and publishes the Apple Silicon DMG with a matching Git tag. Add `[release major]` to a commit message to increment the major version and reset the minor and patch numbers to zero. The workflow can also be run manually from `main` to publish pending app changes. [Release workflow](.github/workflows/release.yml)
 
-The release workflow signs both the update feed and DMG with the `SPARKLE_PRIVATE_KEY` repository secret. The corresponding key is stored in the login keychain under the Sparkle account `minterm`; keep a secure backup, since losing it prevents existing installations from accepting future automatic updates. The repository and its releases must be public for automatic checks to work without credentials. Builds download the pinned Sparkle framework and verify its SHA-256 digest.
+The Rust updater verifies each DMG with the existing Ed25519 public key before mounting it. It validates the replacement bundle, exchanges it atomically with the installed app and keeps the previous copy until relaunch succeeds. Updates require write access to the app's folder; errors leave the installed app available. No Sparkle framework ships in the app.
+
+The release workflow retains the signed appcast and DMG format so existing Sparkle installations can upgrade. It signs both with the `SPARKLE_PRIVATE_KEY` repository secret. The corresponding key is stored in the login keychain under the Sparkle account `minterm`; keep a secure backup, since losing it prevents existing installations from accepting future automatic updates. The repository and its releases must be public for automatic checks to work without credentials. Only release signing uses the pinned Sparkle tools, whose download is verified with SHA-256.
 
 The embedded renderer is xterm.js 6.0.0 with its fit addon 0.11.0. Martian Mono and Barlow ship under the SIL Open Font License. To regenerate the two Minterm Mono weights, run `uv run ui/fonts/build_minterm_mono.py`. [Renderer licenses](ui/vendor) · [Font licenses](ui/fonts)

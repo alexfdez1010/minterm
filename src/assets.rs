@@ -2,10 +2,14 @@ use std::borrow::Cow;
 use wry::http::{Request, Response};
 
 pub const URL: &str = "minterm://localhost/";
+pub const UPDATE_URL: &str = "minterm://localhost/update.html";
 
 pub fn serve(_: wry::WebViewId<'_>, request: Request<Vec<u8>>) -> Response<Cow<'static, [u8]>> {
     let (mime, body): (&str, &[u8]) = match request.uri().path() {
         "/" => ("text/html", include_bytes!("../ui/index.html")),
+        "/update.html" => ("text/html", include_bytes!("../ui/update.html")),
+        "/update.css" => ("text/css", include_bytes!("../ui/update.css")),
+        "/update.js" => ("text/javascript", include_bytes!("../ui/update.js")),
         "/tokens.css" => ("text/css", include_bytes!("../ui/tokens.css")),
         "/theme.js" => ("text/javascript", include_bytes!("../ui/theme.js")),
         "/fonts/barlow-regular.woff2" => (

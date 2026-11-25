@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Minterm</title>
+    <link rel="stylesheet" href="/tokens.css" />
+    <link rel="stylesheet" href="/update.css" />
+    <script type="module" src="/update.js"></script>
+  </head>
+  <body>
+    <div id="drag" aria-hidden="true"></div>
+    <main aria-labelledby="status">
+      <h1 id="status" role="status">Checking for updates</h1>
+      <p id="detail" hidden></p>
+      <progress id="progress" aria-labelledby="status"></progress>
+      <button id="continue" type="button">Open Minterm</button>
+    </main>
+  </body>
+</html>

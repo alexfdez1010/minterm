@@ -90,6 +90,10 @@ pub enum Action {
 }
 
 pub enum Message {
+    StartUpdate,
+    CancelUpdate,
+    UpdateProgress(crate::updater::Progress),
+    UpdateComplete(Result<Option<crate::updater::Prepared>, String>),
     Preferences,
     Action(Action),
     Shell(SessionEvent),
@@ -167,6 +171,25 @@ impl App {
 
     pub fn quitting(&self) -> bool {
         self.quitting
+    }
+
+    pub fn open_workspace(&self) {
+        if let Err(error) = self.view.load_url(crate::assets::URL) {
+            eprintln!("Could not open workspace: {error}");
+        }
+    }
+
+    pub fn update_progress(&self, progress: crate::updater::Progress) {
+        let _ = self.view.evaluate_script(&format!(
+            "window.mintermUpdate?.receive({})",
+            json!(progress)
+        ));
+    }
+
+    pub fn update_failed(&self, error: &str) {
+        let _ = self
+            .view
+            .evaluate_script(&format!("window.mintermUpdate?.fail({})", json!(error)));
     }
 
     pub fn act(&mut self, action: Action) {
@@ -375,6 +398,10 @@ impl App {
 
     pub fn receive(&mut self, message: Message) {
         match message {
+            Message::StartUpdate
+            | Message::CancelUpdate
+            | Message::UpdateProgress(_)
+            | Message::UpdateComplete(_) => {} // Handled by the native startup flow.
             Message::Action(action) => self.act(action),
             Message::Preferences => self.emit("preferences", ui_preferences()),
             Message::Shell(SessionEvent::Output { id, data }) => {

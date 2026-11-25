@@ -6,7 +6,7 @@ use std::{
 fn directory() -> Result<Option<PathBuf>, String> {
     let mut args = env::args_os()
         .skip(1)
-        .filter(|a| !a.to_string_lossy().starts_with("-psn_"));
+        .filter(|a| !a.to_string_lossy().starts_with("-psn_") && a != "--skip-update");
     let first = args.next();
     if first.as_deref() == Some(std::ffi::OsStr::new("--help")) {
         println!(
@@ -35,6 +35,9 @@ fn directory() -> Result<Option<PathBuf>, String> {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    if minterm::apply_update_if_requested()? {
+        return Ok(());
+    }
     if let Some(directory) = directory()? {
         minterm::launch(directory, true, |_, _| {})?;
     }

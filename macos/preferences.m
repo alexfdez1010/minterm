@@ -61,7 +61,7 @@ static BOOL shortcutTaken(NSMenu *menu, NSString *letter, NSEventModifierFlags f
     _modeShortcut = [self shortcutButton:@"shortcut" label:@"Record switch mode shortcut"];
     _splitShortcut = [self shortcutButton:@"splitShortcut" label:@"Record Split View shortcut"];
     _projectsShortcut = [self shortcutButton:@"projectsShortcut" label:@"Record Open Project shortcut"];
-    _automaticUpdates = [NSButton checkboxWithTitle:@"Install automatically" target:self action:@selector(updatesChanged:)];
+    _automaticUpdates = [NSButton checkboxWithTitle:@"Update on startup" target:self action:@selector(updatesChanged:)];
     _generalView = form(@[
         @[[NSTextField labelWithString:@"New tabs"], _mode],
         @[[NSTextField labelWithString:@"Switch mode"], _modeShortcut],

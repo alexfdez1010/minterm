@@ -1,6 +1,5 @@
 fn main() {
     println!("cargo:rerun-if-changed=macos/settings.m");
-    println!("cargo:rerun-if-changed=macos/updater.m");
     println!("cargo:rerun-if-changed=macos/preferences.h");
     println!("cargo:rerun-if-changed=macos/preferences.m");
     println!("cargo:rerun-if-changed=macos/agent_commands.h");
@@ -9,7 +8,6 @@ fn main() {
     println!("cargo:rerun-if-changed=macos/command_shortcut.m");
     cc::Build::new()
         .file("macos/settings.m")
-        .file("macos/updater.m")
         .file("macos/preferences.m")
         .file("macos/agent_commands.m")
         .file("macos/command_shortcut.m")
