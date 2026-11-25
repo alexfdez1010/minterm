@@ -17,6 +17,12 @@ agent = "opencode"
 command = "opencode"
 
 [[commands]]
+name = "antigravity"
+agent = "antigravity"
+command = "agy"
+shortcut = "Ctrl+A"
+
+[[commands]]
 name = "ocq"
 agent = "opencode"
 # The shell alias wraps ollama launch. Forward agent arguments after --.

@@ -20,6 +20,8 @@ Minterm disables macOS inline text predictions in terminal and task fields so su
 
 Click **Projects** or press **⌘⇧P** to open a new terminal in a frequently visited folder. Search by name or path, then press Return or select a row. Projects are ranked by visits during the last seven days, with recent visits breaking ties. Subfolders of a Git repository count toward its root, including Git worktrees; other folders count individually. Home and filesystem root are excluded.
 
+Use a row’s remove button, or focus the project with the arrow keys and press **⌘W**, to remove it from history. Its folder and open terminals stay intact. A new visit adds the project again. **Escape** closes Projects; **⌘W** also closes it when the search field is focused.
+
 Minterm learns from its own shell sessions, including background tabs, starting with this version. A visit is opening a shell in a folder or entering a different project; repeated checks and movement within the same repository do not add visits. Directory changes are sampled every two seconds and when terminal context refreshes, so very brief visits can be missed. History stays on this Mac in `~/Library/Application Support/minterm/projects.json` (or `$XDG_STATE_HOME/minterm/projects.json`), expires after seven days and retains at most 4,096 visits.
 
 ### Local inspector
@@ -41,6 +43,7 @@ Press **⌘K** to open the robot prompt from a shell. Enter a task for the defau
 | Starter command | Launches | Shortcut at the robot prompt |
 | --- | --- | --- |
 | `codex`, `claude`, `opencode` | The corresponding interactive CLI | |
+| `antigravity` | Antigravity CLI (`agy`) | ⌃A |
 | `ocq` | Your shell’s `ocq` alias for OpenCode with Qwen through Ollama | |
 | `sol-light` | Codex with `gpt-6.2-sol` and low reasoning effort | ⌃L |
 | `sol-ultra` | Codex with `gpt-6.2-sol` and ultra reasoning effort | ⌃U |
@@ -60,12 +63,14 @@ Add a `[[commands]]` table for each profile.
 | Field | Use |
 | --- | --- |
 | `name` | The name to type at the robot prompt |
-| `agent` | The initial-task syntax to use, one of `codex`, `claude` or `opencode` |
+| `agent` | The initial-task syntax to use, one of `codex`, `claude`, `opencode` or `antigravity` |
 | `command` | The command to invoke in the interactive login shell |
 | `shortcut` | An optional binding such as `"Ctrl+L"`. Use a distinct letter for each profile. |
 
 Put persistent aliases or functions in the login shell’s startup files. To select the default profile, put a line such as `default = "sol-light"` above the first table. To use a changed profile, start a new agent session.
 
-The current file format (`version = 2`) includes the three standard agents. Minterm upgrades earlier files on first use and keeps custom commands, executable paths and the selected default.
+For Antigravity CLI, choose **Antigravity** as the base agent and use `agy` as the shell command. Minterm passes an initial task with `--prompt-interactive` so the session stays open for follow-up input. `agy --prompt` runs a single task and exits.
+
+New configurations include Codex, Claude Code, OpenCode and Antigravity. The current file format is `version = 2`. Minterm upgrades earlier files on first use and keeps custom commands, executable paths and the selected default.
 
 [Back to Minterm](../README.md)

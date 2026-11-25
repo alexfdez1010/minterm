@@ -47,7 +47,7 @@ Install and set up the CLI you want to use. To pick your default, open **Setting
 ## 🪟 The workspace
 
 - **Keep several sessions in view.** Split View tiles your open tabs. Add another agent, keep build output beside it or return to one tab while everything keeps running.
-- **Find the session that needs you.** Press **⌘⇧A** to open the running agents list. The inspector recognizes Codex, Claude Code and OpenCode started from the shell too. Select a session marked **Input requested** to answer in its terminal.
+- **Find the session that needs you.** Press **⌘⇧A** to open the running agents list. The inspector recognizes Codex, Claude Code, OpenCode and Antigravity started from the shell too. Select a session marked **Input requested** to answer in its terminal.
 - **Return to a project.** Click **Projects** or press **⌘⇧P** to search the folders you visit most over seven days and open a terminal there. [How projects are counted](docs/workspace.md#projects)
 - **See what’s running locally.** The inspector shows listening TCP ports and optional Docker mappings. Tabs show the working directory and Git ref on hover, and zsh and Bash can show them in the prompt.
 
@@ -58,7 +58,7 @@ Install and set up the CLI you want to use. To pick your default, open **Setting
 | Shortcut | Action |
 | --- | --- |
 | ⌘T | Open a tab in the active session’s directory |
-| ⌘⇧P | Find a frequent project and open a terminal there |
+| ⌘⇧P by default | Find a frequent project and open a terminal there |
 | ⌘K | Switch between a shell and its agent |
 | ⌘L | Toggle Split View |
 | ⌘1 through ⌘9 | Select a tab or pane by position |
@@ -68,11 +68,12 @@ Install and set up the CLI you want to use. To pick your default, open **Setting
 | ⌘I | Show or hide the local inspector |
 | ⌘⇧Return | Focus the terminal or restore its panels |
 | ⌃L / ⌃U | Launch the light or ultra Codex profile from the robot prompt |
-| ⌘W | Close the current tab or Settings. Press again to confirm closing a busy tab. |
+| ⌃A | Launch Antigravity from the robot prompt |
+| ⌘W | Close the current tab or Settings; in Projects, remove the focused project from history. Press again to confirm closing a busy tab. |
 | ⌘+ / ⌘− / ⌘0 | Increase, decrease or reset the terminal text size |
 | ⌘, | Open Settings |
 
-In **Settings → General**, change **Switch mode**, **Toggle Split View** or the mode that **⌘T** opens. Record a Command shortcut with a letter and any additional modifiers you want.
+In **Settings → General**, change the **Switch mode**, **Toggle Split View** and **Open Project** shortcuts or the mode that **⌘T** opens. Record a Command shortcut with a letter and any additional modifiers you want. Changes apply immediately and are saved for the next launch.
 
 ## Agent commands
 

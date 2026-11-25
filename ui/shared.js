@@ -3,6 +3,7 @@ const agentNames = {
   codex: "Codex",
   claude: "Claude Code",
   opencode: "OpenCode",
+  antigravity: "Antigravity",
 };
 export const agentLabel = (id) => Object.hasOwn(agentNames, id) ? agentNames[id] : id;
 export const send = (action, values = {}) =>

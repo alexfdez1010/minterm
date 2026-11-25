@@ -59,8 +59,10 @@ pub(crate) fn resolve(agent: &str, configured: Option<&Path>) -> Result<AgentCli
         "codex" => "Codex",
         "claude" => "Claude Code",
         "opencode" => "OpenCode",
-        _ => return Err("Choose Codex, Claude Code, or OpenCode.".into()),
+        "antigravity" => "Antigravity",
+        _ => return Err("Choose Codex, Claude Code, OpenCode or Antigravity.".into()),
     };
+    let binary = if agent == "antigravity" { "agy" } else { agent };
     let mut dirs = binary_paths();
     let executable = |file: &Path| {
         fs::metadata(file).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
@@ -76,8 +78,8 @@ pub(crate) fn resolve(agent: &str, configured: Option<&Path>) -> Result<AgentCli
         }
         file.to_owned()
     } else {
-        dirs.iter().map(|dir| dir.join(agent)).find(|file| executable(file)).ok_or_else(|| {
-            format!("{name} CLI was not found. Install {agent} or select its executable in Settings.")
+        dirs.iter().map(|dir| dir.join(binary)).find(|file| executable(file)).ok_or_else(|| {
+            format!("{name} CLI was not found. Install {binary} or select its executable in Settings.")
         })?
     };
     Ok(AgentCli {

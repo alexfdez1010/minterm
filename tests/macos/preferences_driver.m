@@ -67,7 +67,7 @@ static void qa_commands(NSWindow *window, NSDictionary *request, void (^reply)(i
     NSMutableArray *commands = [NSMutableArray array];
     NSInteger selected = -1, defaults = 0;
     NSString *defaultName = @"";
-    NSDictionary *ids = @{@"Codex": @"codex", @"Claude Code": @"claude", @"OpenCode": @"opencode"};
+    NSDictionary *ids = @{@"Codex": @"codex", @"Claude Code": @"claude", @"OpenCode": @"opencode", @"Antigravity": @"antigravity"};
     NSString *target = request[@"original"] ?: request[@"name"];
     for (NSInteger row = 0; row < table.numberOfRows; row++) {
         NSMutableDictionary *entry = [NSMutableDictionary dictionary];
@@ -162,7 +162,8 @@ static void qa_preferences(NSWindow *terminal, NSDictionary *request, void (^rep
     NSPopUpButton *mode = (NSPopUpButton *)qa_setting(window.contentView, @"New tabs");
     NSButton *shortcut = (NSButton *)qa_setting(window.contentView, @"Record switch mode shortcut");
     NSButton *splitShortcut = (NSButton *)qa_setting(window.contentView, @"Record Split View shortcut");
-    if (!mode || !shortcut || !splitShortcut) {
+    NSButton *projectsShortcut = (NSButton *)qa_setting(window.contentView, @"Record Open Project shortcut");
+    if (!mode || !shortcut || !splitShortcut || !projectsShortcut) {
         reply(nil, @"General pane is missing a control");
         return;
     }
@@ -172,7 +173,8 @@ static void qa_preferences(NSWindow *terminal, NSDictionary *request, void (^rep
         CGFloat y = MIN(MAX(NSMidY(terminal.frame) - NSHeight(window.frame)/2, NSMinY(available)), NSMaxY(available) - NSHeight(window.frame));
         BOOL centered = fabs(NSMinX(window.frame) - x) <= 1 && fabs(NSMinY(window.frame) - y) <= 1;
         reply(@{@"mode": mode.titleOfSelectedItem, @"shortcut": shortcut.title,
-                @"splitShortcut": splitShortcut.title, @"centered": @(centered),
+                @"splitShortcut": splitShortcut.title, @"projectsShortcut": projectsShortcut.title,
+                @"centered": @(centered),
                 @"panes": [panes.tabViewItems valueForKey:@"label"]}, nil);
         return;
     }
@@ -182,9 +184,11 @@ static void qa_preferences(NSWindow *terminal, NSDictionary *request, void (^rep
         [mode selectItemWithTitle:item];
         [mode sendAction:mode.action to:mode.target];
     } else if ([action isEqual:@"record"]) {
-        [shortcut performClick:nil];
+        [shortcut sendAction:shortcut.action to:shortcut.target];
     } else if ([action isEqual:@"recordSplit"]) {
-        [splitShortcut performClick:nil];
+        [splitShortcut sendAction:splitShortcut.action to:splitShortcut.target];
+    } else if ([action isEqual:@"recordProjects"]) {
+        [projectsShortcut sendAction:projectsShortcut.action to:projectsShortcut.target];
     } else if ([action isEqual:@"key"]) {
         qa_setting_key(window, request);
     } else {

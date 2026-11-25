@@ -78,7 +78,8 @@ try {
   await expect('First shell and its Git branch', () => tabs().length === 1 &&
     $('.terminal-page.selected')?.dataset.state === 'live' && selected().title.includes('main') && selected().title.includes('/workspace'));
   if (restoredSplit !== null) {
-    $('#projects-toggle').click();
+    await expect('Project shortcut survives an app restart', () => $('#projects-toggle').title.includes('⌥⌘P'));
+    if (!await key(35, 'p', command | (1 << 19))) throw new Error('Saved project shortcut is missing from the Shell menu');
     await expect('Project history survives an app restart', () =>
       [...document.querySelectorAll('#project-list button')].some(button => button.dataset.path.endsWith('/command-target')));
     await key(53, '\x1b');
@@ -105,6 +106,38 @@ try {
     selected() === originalProjectTab && document.activeElement === focusedTerminal());
   $('#projects-toggle').click();
   await expect('Refreshing Projects does not add visits', () => $('#project-list .project-visits')?.textContent === visitsBefore);
+  $('#project-list .project-remove').focus();
+  $('#project-list .project-remove').click();
+  await expect('Remove button forgets the project and focuses search without closing its shell', () =>
+    !$('#project-list button') && !$('#projects-empty').hidden && $('#projects-dialog').open &&
+    tabs().length === 1 && selected() === originalProjectTab && document.activeElement === $('#project-search'));
+  await key(53, '\x1b');
+  $('#projects-toggle').click();
+  await expect('Removed project stays absent while its existing shell remains open', () =>
+    !$('#project-list button') && !$('#projects-empty').hidden && !$('#projects-empty').textContent.includes('Loading'));
+  await key(13, 'w', command);
+  await expect('Command-W from project search closes only the dialog', () =>
+    !$('#projects-dialog').open && tabs().length === 1 && document.activeElement === focusedTerminal());
+  await key(17, 't', command);
+  await expect('The removed project folder can still open in a new shell', () => tabs().length === 2 &&
+    $('.terminal-page.selected')?.dataset.state === 'live' && selected().title.includes('/workspace'));
+  await key(13, 'w', command);
+  await expect('The temporary shell closes', () => tabs().length === 1);
+  $('#projects-toggle').click();
+  await expect('A new visit restores the project', () => $('#project-list .project-link')?.dataset.path.endsWith('/workspace'));
+  await key(125, '\uf701');
+  await key(13, 'w', command);
+  await expect('Native Command-W removes the focused project without closing its tab', () =>
+    !$('#project-list button') && $('#projects-dialog').open && tabs().length === 1 &&
+    document.activeElement === $('#project-search'));
+  await key(53, '\x1b');
+  await key(17, 't', command);
+  await expect('Another visit restores the removed project', () => tabs().length === 2 &&
+    $('.terminal-page.selected')?.dataset.state === 'live');
+  await key(13, 'w', command);
+  await expect('The original shell remains selected', () => tabs().length === 1 && selected() === originalProjectTab);
+  $('#projects-toggle').click();
+  await expect('Projects is ready after restoring a visit', () => !!$('#project-list .project-link'));
   await type('workspace');
   await key(125, '\uf701');
   await expect('Down arrow focuses the first project', () => document.activeElement === $('#project-list button'));
@@ -402,7 +435,7 @@ try {
   await expect('Agent launcher opened', () => $('#agent-launch').open);
   const agentChoice = $('#agent-launch-form').elements.agent;
   await expect('Launcher lists built-in agents and the saved shell command', () =>
-    [...agentChoice.options].map(option => option.value).sort().join(',') === 'claude,codex,ocq,opencode,sol-light,sol-ultra');
+    [...agentChoice.options].map(option => option.value).sort().join(',') === 'antigravity,claude,codex,ocq,opencode,sol-light,sol-ultra');
   const task = $('#agent-prompt');
   task.value = 'Review fixture changes\nDescribe `git status` literally.';
   task.dispatchEvent(new Event('input', {bubbles:true}));
@@ -700,6 +733,40 @@ try {
     await enter('/exit');
     await expect('Legacy shortcut agent exits', () => surface().dataset.state === 'ended');
   }
+  for (const mode of ['name-empty', 'name-task', 'control', 'held-return']) {
+    await key(40, 'k', command);
+    await expect('Shell returns after the previous agent', () => surface()?.dataset.kind === 'shell');
+    await key(40, 'k', command);
+    await expect('Prompt is ready for Antigravity', () => document.activeElement === $('#command-input'));
+    const prompt = '--help review\nKeep $(touch agy-command-ran) literal.';
+    if (mode === 'name-empty') await type('antigravity');
+    else {
+      // Set a multiline draft as the editor does; a native newline key submits.
+      $('#command-input').value = (mode === 'name-task' ? 'antigravity ' : '') + prompt;
+      $('#command-input').dispatchEvent(new Event('input', {bubbles: true}));
+    }
+    if (mode.startsWith('name-')) {
+      await key(36, '\r');
+    } else {
+      if (mode === 'control') await controlLetter(0, 'a');
+      else {
+        await keyPhase('down', 36, '\r');
+        await key(0, 'a');
+        await keyPhase('up', 36, '\r');
+      }
+    }
+    await expect('Antigravity launches interactively through ' + mode, () =>
+      surface()?.dataset.kind === 'agent' && surface().dataset.state === 'live');
+    const cli = activeTerminal();
+    await expect('Antigravity has a TTY and the interactive task flag through ' + mode, () => rows(cli).includes('Interactive fixture ready'));
+    if (mode === 'name-empty') {
+      await expect('Bare Antigravity starts without a task', () => rows(cli).includes('Started agy without a task'));
+    }
+    await enter('Antigravity follow up');
+    await expect('Antigravity accepts subsequent input', () => rows(cli).includes('Fixture reply: Antigravity follow up'));
+    await enter('/exit');
+    await expect('Antigravity exits cleanly', () => surface().dataset.state === 'ended');
+  }
   if ($('#panes-toggle').getAttribute('aria-pressed') === 'false') $('#panes-toggle').click();
   await expect('Split View is active before restarting', () => panes().length > 1);
   await window.webkit.messageHandlers.testKey.postMessage({closeWindow: true});
@@ -715,5 +782,6 @@ try {
     tab: selected()?.textContent, focus: document.activeElement.id || document.activeElement.className,
     surface: $('.terminal-page.selected')?.dataset, draft: $('#command-input').value,
     reason: $('.terminal-pane.active .exit-note')?.textContent,
+    terminal: rows(activeTerminal()),
   }) + '\n' + err.stack;
 }

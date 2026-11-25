@@ -447,7 +447,8 @@ function command(name) {
   const dialog = document.querySelector("dialog[open]");
   if (dialog) {
     if (name === "close") {
-      if (dialog === $("confirm") && typeof confirmation === "number") acceptConfirmation();
+      if (dialog === projects.dialog) projects.closeSelection();
+      else if (dialog === $("confirm") && typeof confirmation === "number") acceptConfirmation();
       else dialog.close();
     }
     return;
@@ -515,6 +516,7 @@ function command(name) {
 }
 function applyPreferences(prefs) {
   commandMode.preferences(prefs);
+  projects.preferences(prefs);
   setAgentChoices(prefs?.agentCommands || [], commandMode.agent, commandMode.error);
   splitShortcut = prefs?.splitShortcut || "";
   updatePanesToggle();

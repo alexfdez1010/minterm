@@ -45,7 +45,7 @@ pub fn launch(
         .with_fullsize_content_view(true)
         .with_traffic_light_inset(LogicalPosition::new(18., 18.))
         .build(&event_loop)?;
-    let (menu, switch_mode, panes) = menu::install()?;
+    let (menu, switch_mode, panes, projects) = menu::install()?;
     if visible {
         settings::automatic_updates(preferences::read_general().automatic_updates, true);
     }
@@ -105,6 +105,8 @@ pub fn launch(
                 }
                 let _ = switch_mode.set_key_accelerator(preferences::accelerator(&prefs.shortcut));
                 let _ = panes.set_key_accelerator(preferences::accelerator(&prefs.split_shortcut));
+                let _ = projects
+                    .set_key_accelerator(preferences::accelerator(&prefs.projects_shortcut));
                 app.receive(Message::Preferences);
             }
             Event::UserEvent(Message::Menu(name))

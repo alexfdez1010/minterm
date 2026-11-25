@@ -365,6 +365,9 @@ fn interactive_agent(
             // The CLI parses a separate "--help" value as a flag. Bind the
             // option to its complete value so every initial prompt stays literal.
             cmd.arg(format!("--prompt={prompt}"));
+        } else if name == "antigravity" {
+            // In agy, --prompt means print-and-exit. Keep follow-up input live.
+            cmd.arg(format!("--prompt-interactive={prompt}"));
         } else {
             cmd.args(["--", prompt]);
         }
@@ -891,7 +894,7 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
         let prompt = "--leading option $(touch surprise)\nand another line";
-        for name in ["codex", "claude", "opencode"] {
+        for name in ["codex", "claude", "opencode", "antigravity"] {
             let (tx, rx) = mpsc::channel();
             let mut sessions = Sessions::new(move |event| {
                 let _ = tx.send(event);
@@ -907,10 +910,10 @@ mod tests {
             assert_eq!(sessions.live_cwd(ID).unwrap(), work.canonicalize().unwrap());
             let args = std::fs::read(work.join("args")).unwrap();
             let mut expected = Vec::new();
-            expected.extend_from_slice(if name == "opencode" {
-                b"--prompt="
-            } else {
-                b"--\0"
+            expected.extend_from_slice(match name {
+                "opencode" => b"--prompt=",
+                "antigravity" => b"--prompt-interactive=",
+                _ => b"--\0",
             });
             expected.extend_from_slice(prompt.as_bytes());
             expected.push(0);
@@ -964,6 +967,17 @@ mod tests {
                     ],
                 ),
                 (
+                    "antigravity",
+                    "probe --model 'my model'",
+                    prompt,
+                    vec![
+                        "--model".into(),
+                        "my model".into(),
+                        format!("--prompt-interactive={prompt}"),
+                    ],
+                ),
+                ("antigravity", "probe", "", vec![]),
+                (
                     "opencode",
                     "ocq",
                     "",
@@ -986,7 +1000,11 @@ mod tests {
                 read_until(&sessions, &rx, "custom-ready");
                 assert_eq!(
                     std::fs::read(work.join("args")).unwrap(),
-                    (expected.join("\0") + "\0").as_bytes()
+                    if expected.is_empty() {
+                        Vec::new()
+                    } else {
+                        (expected.join("\0") + "\0").into_bytes()
+                    }
                 );
                 assert!(!work.join("surprise").exists());
                 assert_eq!(sessions.live_cwd(ID).unwrap(), work.canonicalize().unwrap());

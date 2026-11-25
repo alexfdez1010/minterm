@@ -51,7 +51,7 @@ alias ocq='ollama launch opencode --model fixture/qwen'
 "#,
     )
     .unwrap();
-    for name in ["codex", "claude", "opencode"] {
+    for name in ["codex", "claude", "opencode", "agy"] {
         let cli = bin.join(name);
         fs::write(
             &cli,
@@ -73,7 +73,10 @@ elif [ "${0##*/}" = codex ] && [ "$1" = -m ]; then
     esac
 else
     record=${0##*/}
-    if [ "$record" != opencode ]; then [ "$#" -eq 2 ] && [ "$1" = -- ] || exit 64; fi
+    if [ "$record" = agy ]; then
+        [ "$#" -eq 1 ] || exit 64
+        case "$1" in --prompt-interactive=*) ;; *) exit 64 ;; esac
+    elif [ "$record" != opencode ]; then [ "$#" -eq 2 ] && [ "$1" = -- ] || exit 64; fi
 fi
 pwd > "$record-cwd"
 : > "$record-argv"
@@ -154,6 +157,7 @@ name = "legacy"
 agent = "claude"
 command = "claude"
 shortcut = "Enter+G"
+
 "#,
     )
     .unwrap();
@@ -274,6 +278,17 @@ int main(void) {
         b"--model\0fixture/qwen\0--prompt=--help review\nKeep $(touch alias-command-ran) literal.\0"
     );
     assert!(!command_dir.join("alias-command-ran").exists());
+    assert_eq!(
+        fs::read(home.join("external/agy-argv")).unwrap(),
+        b"--prompt-interactive=--help review\nKeep $(touch agy-command-ran) literal.\0"
+    );
+    assert_eq!(
+        fs::read_to_string(home.join("external/agy-cwd"))
+            .unwrap()
+            .trim_end(),
+        home.join("external").to_str().unwrap()
+    );
+    assert!(!home.join("external/agy-command-ran").exists());
     assert_eq!(
         fs::read(home.join("external/custom-task-argv")).unwrap(),
         b"--model\0fixture/external\0--prompt=review external edit\0"

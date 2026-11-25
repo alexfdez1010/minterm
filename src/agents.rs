@@ -50,6 +50,7 @@ fn cli_name(name: &str) -> Option<&'static str> {
         "claude" => "Claude Code",
         "gemini" => "Gemini CLI",
         "opencode" => "OpenCode",
+        "agy" => "Antigravity",
         "aider" => "Aider",
         "copilot" | "copilot-cli" => "GitHub Copilot",
         "qwen" => "Qwen Code",
@@ -122,7 +123,8 @@ fn agent_mode(name: &'static str, first: Option<&str>) -> Option<&'static str> {
     match (name, first) {
         ("Codex", Some("app-server" | "mcp-server" | "mcp"))
         | ("Claude Code", Some("mcp"))
-        | ("OpenCode", Some("serve" | "web" | "acp")) => None,
+        | ("OpenCode", Some("serve" | "web" | "acp"))
+        | ("Antigravity", Some("acp" | "remote-control")) => None,
         _ => Some(name),
     }
 }
@@ -167,7 +169,7 @@ fn process_agent(pid: i32, scratch: &mut Vec<u8>) -> Option<&'static str> {
             && exe.starts_with(|c: char| c.is_ascii_digit()))
         .then_some("Claude Code")
     })?;
-    if !matches!(name, "Codex" | "Claude Code" | "OpenCode") {
+    if !matches!(name, "Codex" | "Claude Code" | "OpenCode" | "Antigravity") {
         return Some(name);
     }
     let first = read_arguments(pid, scratch)
@@ -235,9 +237,10 @@ pub fn discover(shells: &[(u32, i32)]) -> Vec<Agent> {
         let mut members = HashMap::new();
         for (pid, info) in members_of(shell, root.e_tdev) {
             // Other CLIs still count as running jobs if they replace the login shell.
-            // Only the three agents supported by Minterm appear in the inspector.
-            let name = process_agent(pid, &mut scratch)
-                .filter(|name| matches!(*name, "Codex" | "Claude Code" | "OpenCode"));
+            // Only the agents supported by Minterm appear in the inspector.
+            let name = process_agent(pid, &mut scratch).filter(|name| {
+                matches!(*name, "Codex" | "Claude Code" | "OpenCode" | "Antigravity")
+            });
             // Check PID identity again after inspecting an apparent agent's executable.
             if name.is_some()
                 && !bsd_info(pid).is_some_and(|current| {
@@ -382,7 +385,11 @@ mod tests {
 
         let tmp = tempfile::tempdir().unwrap();
         let fixture = compile_agent_fixture(tmp.path());
-        for (name, listed) in [("aider", None), ("opencode", Some("OpenCode"))] {
+        for (name, listed) in [
+            ("aider", None),
+            ("opencode", Some("OpenCode")),
+            ("agy", Some("Antigravity")),
+        ] {
             let program = tmp.path().join(name);
             std::fs::copy(&fixture, &program).unwrap();
             let ready = tmp.path().join(format!("{name}-ready"));

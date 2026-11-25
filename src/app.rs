@@ -75,6 +75,9 @@ pub enum Action {
     },
     Agents,
     Projects,
+    RemoveProject {
+        path: PathBuf,
+    },
     OpenProject {
         id: u32,
         path: PathBuf,
@@ -181,6 +184,9 @@ impl App {
             } => self.open(id, from, cols, rows),
             Action::Projects => {
                 let _ = self.projects.send(projects::Request::List);
+            }
+            Action::RemoveProject { path } => {
+                let _ = self.projects.send(projects::Request::Remove(path));
             }
             Action::OpenProject {
                 id,
@@ -428,6 +434,7 @@ fn ui_preferences() -> Value {
         "agentCommandsError": prefs.agent_commands_error,
         "shortcut": prefs.shortcut,
         "splitShortcut": prefs.split_shortcut,
+        "projectsShortcut": prefs.projects_shortcut,
         "splitView": prefs.split_view,
         "newTabMode": prefs.new_tab_mode,
         "inspector": prefs.inspector

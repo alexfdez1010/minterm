@@ -14,11 +14,11 @@
 @end
 
 static NSString *agentTitle(NSString *agent) {
-    return @{@"codex": @"Codex", @"claude": @"Claude Code", @"opencode": @"OpenCode"}[agent] ?: agent;
+    return @{@"codex": @"Codex", @"claude": @"Claude Code", @"opencode": @"OpenCode", @"antigravity": @"Antigravity"}[agent] ?: agent;
 }
 
 static void addBaseAgents(NSPopUpButton *popup) {
-    for (NSString *agent in @[@"codex", @"claude", @"opencode"]) {
+    for (NSString *agent in @[@"codex", @"claude", @"opencode", @"antigravity"]) {
         [popup addItemWithTitle:agentTitle(agent)];
         popup.lastItem.representedObject = agent;
     }

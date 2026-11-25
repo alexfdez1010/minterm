@@ -27,7 +27,7 @@ async function verifyPreferences() {
     code, letter, modifiers, ...options,
     text: modifiers === control ? String.fromCharCode(letter.toUpperCase().charCodeAt(0) & 31) : letter,
   });
-  const defaults = {mode: 'Terminal', shortcut: '⌘K', splitShortcut: '⌘L'};
+  const defaults = {mode: 'Terminal', shortcut: '⌘K', splitShortcut: '⌘L', projectsShortcut: '⇧⌘P'};
   const option = 1 << 19;
   await settings('prepare');
   await open();
@@ -35,6 +35,7 @@ async function verifyPreferences() {
     {name: 'codex', title: 'Codex', agent: '', command: 'codex'},
     {name: 'claude', title: 'Claude Code', agent: '', command: 'claude'},
     {name: 'opencode', title: 'OpenCode', agent: '', command: 'opencode', shortcut: ''},
+    {name: 'antigravity', title: 'Antigravity', agent: '', command: 'agy', shortcut: 'Ctrl+A'},
     {name: 'ocq', agent: 'opencode', command: 'ocq --', shortcut: ''},
     {name: 'sol-light', agent: 'codex', shortcut: 'Ctrl+L'},
     {name: 'sol-ultra', agent: 'codex', shortcut: 'Ctrl+U'},
@@ -137,15 +138,44 @@ async function verifyPreferences() {
   await settings('recordSplit');
   await recordKey(38, 'j', command);
   await state({splitShortcut: '⌘J'});
+  await settings('recordProjects');
+  await state({projectsShortcut: 'Press ⌘ and a letter'});
+  await recordKey(35, 'p');
+  await state({projectsShortcut: 'Press ⌘ and a letter'});
+  await recordKey(17, 't', command);
+  await state({projectsShortcut: 'Shortcut in use. Try another.'});
+  await recordKey(40, 'k', command);
+  await state({projectsShortcut: 'Shortcut in use. Try another.'});
+  await recordKey(38, 'j', command);
+  await state({projectsShortcut: 'Shortcut in use. Try another.'});
+  await recordKey(53, '\x1b');
+  await state({projectsShortcut: '⇧⌘P'});
+  await settings('recordProjects');
+  await recordKey(35, 'p', command | option);
+  await state({projectsShortcut: '⌥⌘P'});
+  // Other recorders must also reject the newly assigned project shortcut.
+  await settings('record');
+  await recordKey(35, 'p', command | option);
+  await state({shortcut: 'Shortcut in use. Try another.'});
+  await recordKey(53, '\x1b');
   await settings('record');
   await recordKey(16, 'y', command | option);
-  const changed = {mode: 'Agent', shortcut: '⌥⌘Y', splitShortcut: '⌘J'};
+  const changed = {mode: 'Agent', shortcut: '⌥⌘Y', splitShortcut: '⌘J', projectsShortcut: '⌥⌘P'};
   await state(changed);
   await settings('close');
   await expect('New tab and mode toggle reflect saved settings', () =>
     $('#new-tab').getAttribute('aria-label') === 'New agent tab' && $('#command-toggle').title.includes('⌥⌘Y'));
   await expect('Split View button reflects its new shortcut', () =>
     $('#panes-toggle').title.includes('⌘J') && $('#panes-toggle').getAttribute('aria-keyshortcuts') === 'Meta+J');
+  await expect('Projects button reflects its new shortcut', () =>
+    $('#projects-toggle').title.includes('⌥⌘P') && $('#projects-toggle').getAttribute('aria-keyshortcuts') === 'Alt+Meta+P');
+  if (await key(35, 'P', command | shift, 'p')) throw new Error('Previous project shortcut still owns Command-Shift-P');
+  if (!await key(35, 'p', command | option)) throw new Error('Shell menu did not receive Command-Option-P');
+  await expect('Recorded shortcut opens project search', () =>
+    $('#projects-dialog').open && document.activeElement === $('#project-search'));
+  await key(53, '\x1b');
+  await expect('Closing project search restores terminal focus', () =>
+    !$('#projects-dialog').open && document.activeElement === focusedTerminal());
   if (await key(37, 'l', command)) throw new Error('Previous Split View shortcut still owns Command-L');
   if (!await key(38, 'j', command)) throw new Error('View menu did not receive Command-J');
   await expect('Recorded shortcut enters Split View', () => panes().length === tabs().length && panes().length > 1);
@@ -187,6 +217,17 @@ async function verifyPreferences() {
   await settings('save');
   await choose('codex');
   await commandState(presets, 'codex');
+  const antigravity = {name: 'antigravity', agent: 'antigravity', command: 'agy', shortcut: 'Ctrl+A'};
+  await settings('editCommand', {name: antigravity.name});
+  await state(antigravity);
+  await settings('record');
+  await recordKey(36, '\r', 0, {phase: 'down'});
+  await recordKey(0, 'a');
+  await recordKey(36, '\r', 0, {phase: 'up'});
+  await state({shortcut: 'Enter+A'});
+  await settings('save');
+  await commandState(presets.map(profile => profile.name === antigravity.name
+    ? {...profile, shortcut: 'Enter+A'} : profile), 'codex');
   await pane('General');
   await settings('mode', {value: 'Terminal'});
   await settings('record');
@@ -194,7 +235,7 @@ async function verifyPreferences() {
   await state({shortcut: '⌘K'});
   await settings('recordSplit');
   await recordKey(37, 'l', command);
-  await state(defaults);
+  await state({...defaults, projectsShortcut: changed.projectsShortcut});
   await settings('close');
   await expect('Original tab defaults and menu shortcut restored', () =>
     $('#new-tab').getAttribute('aria-label') === 'New terminal tab' && $('#command-toggle').title.includes('(⌘K)'));

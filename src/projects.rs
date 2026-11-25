@@ -21,6 +21,7 @@ const MAX_BYTES: u64 = 32 * 1024 * 1024;
 pub enum Request {
     Shells(Vec<(u32, i32)>),
     List,
+    Remove(PathBuf),
     Open {
         id: u32,
         path: PathBuf,
@@ -51,7 +52,13 @@ pub fn start(proxy: EventLoopProxy<Message>) -> Sender<Request> {
             }
             history.sample(&shells, now());
             match request {
-                Some(Request::List) => {
+                Some(Request::List) | Some(Request::Remove(_)) => {
+                    if let Some(Request::Remove(path)) = request {
+                        history.error = history
+                            .merge_save(now(), Some(&path))
+                            .err()
+                            .map(|_| "Could not remove this project. Try again.".into());
+                    }
                     history.refresh(now());
                     let entries = history.ranked(now());
                     let _ = proxy.send_event(Message::Projects(json!({
@@ -194,7 +201,7 @@ impl History {
         }
         changed |= self.prune(now);
         if changed || !self.pending.is_empty() {
-            self.error = self.merge_save(now).err().map(|_| {
+            self.error = self.merge_save(now, None).err().map(|_| {
                 "Could not save project history. Visits are available until Minterm quits.".into()
             });
         }
@@ -209,7 +216,7 @@ impl History {
         }
     }
 
-    fn merge_save(&mut self, now: u64) -> std::io::Result<()> {
+    fn merge_save(&mut self, now: u64, remove: Option<&Path>) -> std::io::Result<()> {
         let parent = self
             .path
             .parent()
@@ -234,6 +241,9 @@ impl History {
             latest.visits.extend_from_slice(&self.pending);
         }
         latest.prune(now);
+        if let Some(path) = remove {
+            latest.visits.retain(|visit| visit.path != path);
+        }
         latest.save()?;
         self.visits = latest.visits;
         self.pending.clear();
@@ -425,13 +435,63 @@ mod tests {
         let mut second = History::load(path, home);
         first.observe(1, repo.clone(), WEEK);
         second.observe(1, repo.clone(), WEEK + 1);
-        first.merge_save(WEEK + 1).unwrap();
-        second.merge_save(WEEK + 1).unwrap();
+        first.merge_save(WEEK + 1, None).unwrap();
+        second.merge_save(WEEK + 1, None).unwrap();
         assert_eq!(second.ranked(WEEK + 1)[0].visits, 2);
         first.refresh(WEEK + 1);
         assert_eq!(first.ranked(WEEK + 1)[0].visits, 2);
         first.observe(1, repo.clone(), WEEK + 2);
         assert_eq!(first.ranked(WEEK + 2)[0].visits, 2);
         assert!(first.pending.is_empty());
+    }
+
+    #[test]
+    fn removing_a_project_persists_without_closing_or_recounting_live_shells() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().canonicalize().unwrap();
+        let path = home.join("state/projects.json");
+        let repo = home.join("minterm");
+        let other = home.join("other");
+        fs::create_dir_all(repo.join("src")).unwrap();
+        fs::create_dir(repo.join(".git")).unwrap();
+        fs::create_dir(&other).unwrap();
+        let mut first = History::load(path.clone(), home.clone());
+        first.observe(1, repo.clone(), WEEK);
+        first.observe(2, repo.clone(), WEEK);
+        first.merge_save(WEEK, None).unwrap();
+        let mut second = History::load(path.clone(), home.clone());
+        first.observe(3, other.clone(), WEEK + 1);
+        first.merge_save(WEEK + 1, Some(&repo)).unwrap();
+        assert!(repo.join("src").is_dir());
+        assert_eq!(first.current.len(), 3);
+        assert!(first.resolve(&repo, WEEK + 1).is_err());
+        assert_eq!(History::load(path, home).ranked(WEEK + 1)[0].path, other);
+        // A stale window must merge the saved deletion rather than restore its snapshot.
+        second.observe(4, other, WEEK + 2);
+        second.merge_save(WEEK + 2, None).unwrap();
+        first.refresh(WEEK + 2);
+        assert_eq!(first.ranked(WEEK + 2).len(), 1);
+        assert!(!first.observe(1, repo.clone(), WEEK + 3));
+        assert!(!first.observe(2, repo.join("src"), WEEK + 3));
+        assert!(first.observe(5, repo.clone(), WEEK + 4));
+        assert_eq!(first.resolve(&repo, WEEK + 4).unwrap(), repo);
+        assert_eq!(first.ranked(WEEK + 4)[1].visits, 1);
+    }
+
+    #[test]
+    fn failed_removal_keeps_history_available_for_retry() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().canonicalize().unwrap();
+        let path = home.join("state/projects.json");
+        let repo = home.join("minterm");
+        fs::create_dir(&repo).unwrap();
+        let mut history = History::load(path.clone(), home.clone());
+        history.observe(1, repo.clone(), WEEK);
+        history.merge_save(WEEK, None).unwrap();
+        fs::remove_file(path.with_extension("lock")).unwrap();
+        fs::create_dir(path.with_extension("lock")).unwrap();
+        assert!(history.merge_save(WEEK, Some(&repo)).is_err());
+        assert_eq!(history.ranked(WEEK)[0].path, repo);
+        assert_eq!(History::load(path, home).ranked(WEEK)[0].path, repo);
     }
 }

@@ -179,7 +179,10 @@ fn upgrade(doc: &mut DocumentMut, legacy: &Preferences) -> Result<(), String> {
         .as_array_of_tables()
         .unwrap()
         .iter()
-        .filter(|row| row["name"].as_str() == row["agent"].as_str())
+        .filter(|row| {
+            row["name"].as_str() == row["agent"].as_str()
+                && matches!(row["agent"].as_str(), Some("codex" | "claude" | "opencode"))
+        })
         .enumerate()
     {
         let mut row = stock.clone();
@@ -397,7 +400,8 @@ mod tests {
 
     #[test]
     fn starter_lists_every_profile_and_the_selected_default() {
-        let config = config(&document(STARTER).unwrap()).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let config = read_at(&dir.path().join("agents.toml"), &Preferences::default()).unwrap();
         assert_eq!(config.default, "codex");
         let names: Vec<_> = config
             .commands
@@ -410,12 +414,15 @@ mod tests {
                 ("codex", ""),
                 ("claude", ""),
                 ("opencode", ""),
+                ("antigravity", "Ctrl+A"),
                 ("ocq", ""),
                 ("sol-light", "Ctrl+L"),
                 ("sol-ultra", "Ctrl+U")
             ]
         );
-        assert_eq!(config.commands[3].command, "ocq --");
+        assert_eq!(config.commands[3].agent, "antigravity");
+        assert_eq!(config.commands[3].command, "agy");
+        assert_eq!(config.commands[4].command, "ocq --");
     }
 
     #[test]

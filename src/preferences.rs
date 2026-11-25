@@ -17,6 +17,7 @@ pub struct Preferences {
     pub agent_commands_error: Option<String>,
     pub shortcut: String,
     pub split_shortcut: String,
+    pub projects_shortcut: String,
     pub split_view: bool,
     pub automatic_updates: bool,
     pub new_tab_mode: String,
@@ -59,7 +60,7 @@ pub struct AgentCommand {
 }
 
 fn built_in(agent: &str) -> bool {
-    matches!(agent, "codex" | "claude" | "opencode")
+    matches!(agent, "codex" | "claude" | "opencode" | "antigravity")
 }
 
 impl AgentCommand {
@@ -75,7 +76,7 @@ impl AgentCommand {
             return Err("Use a lowercase provider name only for its matching CLI.".into());
         }
         if !built_in(&self.agent) {
-            return Err("Choose Codex, Claude Code or OpenCode.".into());
+            return Err("Choose Codex, Claude Code, OpenCode or Antigravity.".into());
         }
         if self.command.trim().is_empty()
             || self.command.len() > 4096
@@ -97,6 +98,7 @@ impl Default for Preferences {
             agent_commands_error: None,
             shortcut: "⌘K".into(),
             split_shortcut: "⌘L".into(),
+            projects_shortcut: "⇧⌘P".into(),
             split_view: false,
             automatic_updates: false,
             new_tab_mode: "terminal".into(),
@@ -128,7 +130,9 @@ fn validated_value<'a>(field: &str, value: &'a str) -> Result<&'a str, String> {
     let value = value.trim();
     match field {
         "newTabMode" if matches!(value, "terminal" | "agent") => Ok(value),
-        "shortcut" | "splitShortcut" if accelerator(value).is_some() => Ok(value),
+        "shortcut" | "splitShortcut" | "projectsShortcut" if accelerator(value).is_some() => {
+            Ok(value)
+        }
         _ => Err("This setting is invalid.".into()),
     }
 }
@@ -328,6 +332,23 @@ mod tests {
     }
 
     #[test]
+    fn projects_shortcut_defaults_and_saved_choices_survive_other_updates() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("prefs.json");
+        let read = || load(&fs::read(&path).unwrap()).unwrap();
+
+        assert_eq!(load(b"{}").unwrap().projects_shortcut, "⇧⌘P");
+        fs::write(&path, r#"{"formatVersion":1,"shortcut":"⌥⌘Y"}"#).unwrap();
+        assert_eq!(read().projects_shortcut, "⇧⌘P");
+        assert!(update_at(&path, "projectsShortcut", "P").is_err());
+        update_at(&path, "projectsShortcut", "⌃⌥⌘P").unwrap();
+        update_at(&path, "splitShortcut", "⌘J").unwrap();
+        assert_eq!(read().projects_shortcut, "⌃⌥⌘P");
+        assert_eq!(read().shortcut, "⌥⌘Y");
+        assert_eq!(read().split_shortcut, "⌘J");
+    }
+
+    #[test]
     fn custom_command_names_are_unambiguous_in_the_prompt() {
         let mut command = AgentCommand {
             name: "qwen-2.5".into(),
@@ -354,6 +375,17 @@ mod tests {
         command.command = "ocq".into();
         command.agent = "missing".into();
         assert!(command.validate().is_err());
+    }
+
+    #[test]
+    fn antigravity_profiles_use_their_own_task_syntax() {
+        let command = AgentCommand {
+            name: "antigravity".into(),
+            agent: "antigravity".into(),
+            command: "agy".into(),
+            shortcut: "Ctrl+A".into(),
+        };
+        assert!(command.validate().is_ok());
     }
 
     #[test]

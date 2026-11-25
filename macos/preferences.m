@@ -46,7 +46,7 @@ static BOOL shortcutTaken(NSMenu *menu, NSString *letter, NSEventModifierFlags f
     MTChangePreference _change;
     NSMutableDictionary *_values;
     NSPopUpButton *_mode;
-    NSButton *_modeShortcut, *_splitShortcut, *_recordingButton, *_automaticUpdates;
+    NSButton *_modeShortcut, *_splitShortcut, *_projectsShortcut, *_recordingButton, *_automaticUpdates;
     id _monitor;
     MTAgentCommands *_commands;
 }
@@ -60,11 +60,13 @@ static BOOL shortcutTaken(NSMenu *menu, NSString *letter, NSEventModifierFlags f
     _mode.accessibilityLabel = @"New tabs";
     _modeShortcut = [self shortcutButton:@"shortcut" label:@"Record switch mode shortcut"];
     _splitShortcut = [self shortcutButton:@"splitShortcut" label:@"Record Split View shortcut"];
+    _projectsShortcut = [self shortcutButton:@"projectsShortcut" label:@"Record Open Project shortcut"];
     _automaticUpdates = [NSButton checkboxWithTitle:@"Install automatically" target:self action:@selector(updatesChanged:)];
     _generalView = form(@[
         @[[NSTextField labelWithString:@"New tabs"], _mode],
         @[[NSTextField labelWithString:@"Switch mode"], _modeShortcut],
         @[[NSTextField labelWithString:@"Toggle Split View"], _splitShortcut],
+        @[[NSTextField labelWithString:@"Open Project"], _projectsShortcut],
         @[[NSTextField labelWithString:@"Updates"], _automaticUpdates],
     ]);
 
@@ -90,6 +92,7 @@ static BOOL shortcutTaken(NSMenu *menu, NSString *letter, NSEventModifierFlags f
     [self reloadCommands:values];
     _modeShortcut.title = values[_modeShortcut.identifier];
     _splitShortcut.title = values[_splitShortcut.identifier];
+    _projectsShortcut.title = values[_projectsShortcut.identifier];
 }
 
 - (void)reloadCommands:(NSDictionary *)values {
