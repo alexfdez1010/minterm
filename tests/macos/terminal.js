@@ -16,6 +16,7 @@ function activeTerminal() {
   return active;
 }
 function rows(terminal) {
+  if (!terminal) return [];
   const buffer = terminal.buffer.active;
   return Array.from({length: terminal.rows}, (_, i) =>
     buffer.getLine(buffer.viewportY + i)?.translateToString(true) || '');
@@ -141,8 +142,34 @@ try {
   await type('workspace');
   await key(125, '\uf701');
   await expect('Down arrow focuses the first project', () => document.activeElement === $('#project-list button'));
+  const unusedShell = activeTerminal();
   await key(36, '\r');
-  await expect('Selecting a project opens a new live shell', () => tabs().length === 2 &&
+  await expect('Selecting a project reuses an untouched shell and restores focus', () => tabs().length === 1 &&
+    selected() === originalProjectTab && activeTerminal() === unusedShell &&
+    !$('#projects-dialog').open && document.activeElement === focusedTerminal());
+  await expect('The reused shell changes directory', () => rows(unusedShell).some(line => line.includes('cd --')));
+  await key(17, 't', command);
+  await expect('A fresh shell opens for the unfinished input check', () => tabs().length === 2 &&
+    $('.terminal-page.selected')?.dataset.state === 'live');
+  const unfinishedTab = selected(), unfinishedShell = activeTerminal();
+  await type('echo retained-project-input');
+  await expect('The shell has the unfinished project command', () =>
+    rows(unfinishedShell).some(line => line.includes('❯ echo retained-project-input')));
+  $('#projects-toggle').click();
+  await expect('Projects opens over unfinished input', () => !!$('#project-list .project-link'));
+  $('#project-list .project-link').click();
+  await expect('Unfinished input opens the project in a separate shell', () => tabs().length === 3 &&
+    selected() !== unfinishedTab && $('.terminal-page.selected')?.dataset.state === 'live');
+  await key(13, 'w', command);
+  await expect('Closing the project restores the unfinished command', () => tabs().length === 2 &&
+    selected() === unfinishedTab && rows(unfinishedShell).some(line => line.includes('❯ echo retained-project-input')));
+  await controlLetter(8, 'c');
+  await key(13, 'w', command);
+  await expect('The original shell is preserved', () => tabs().length === 1 && selected() === originalProjectTab);
+  $('#projects-toggle').click();
+  await expect('Projects opens over the used shell', () => !!$('#project-list .project-link'));
+  $('#project-list .project-link').click();
+  await expect('Selecting a project preserves a used shell and opens a new one', () => tabs().length === 2 &&
     !$('#projects-dialog').open && $('.terminal-page.selected')?.dataset.state === 'live' &&
     selected().title.includes('/workspace'));
   const projectShell = activeTerminal();
@@ -155,6 +182,22 @@ try {
   await expect('A directory visited in a background tab is learned', () =>
     [...document.querySelectorAll('#project-list button')].some(button => button.dataset.path.endsWith('/command-target')));
   await key(53, '\x1b');
+  await key(17, 't', command);
+  await expect('A fresh shell opens before changing project', () => tabs().length === 3 &&
+    $('.terminal-page.selected')?.dataset.state === 'live' && selected().title.includes('/workspace'));
+  const reusableTab = selected(), reusableShell = activeTerminal();
+  $('#projects-toggle').click();
+  await expect('Projects offers the other repository', () =>
+    [...document.querySelectorAll('#project-list .project-link')].some(button => button.dataset.path.endsWith('/command-target')));
+  [...document.querySelectorAll('#project-list .project-link')].find(button => button.dataset.path.endsWith('/command-target')).click();
+  await expect('Reusing a shell changes its live directory and Git branch without replacing its terminal', () =>
+    tabs().length === 3 && selected() === reusableTab && activeTerminal() === reusableShell &&
+    selected().title.includes('/command-target') && selected().title.includes('command/fixture'));
+  await enter('pwd');
+  await expect('The reused project accepts keyboard input', () => rows(reusableShell).some(line => line.endsWith('/command-target')));
+  await key(13, 'w', command);
+  await expect('Closing the reused project preserves the other shells', () => tabs().length === 2 && selected() === tabs()[1]);
+  originalProjectTab.click();
   await key(124, '\uf703', command);
   await key(13, 'w', command);
   await expect('Closing the new project preserves the source session', () => tabs().length === 1 &&
@@ -276,6 +319,22 @@ try {
         return panes().length === 2 && aligned(left.top, right.top) &&
           aligned(left.width, right.width) && left.right < right.left && shell.cols < tabWidth;
       });
+      await resizeWindow(610, 1050);
+      await expect('A tall workspace stacks terminals into squarer rows', () => {
+        const [top, bottom] = geometry();
+        return innerWidth <= 610 && aligned(top.left, bottom.left) && aligned(top.width, bottom.width) &&
+          top.bottom < bottom.top && top.width / top.height < 1.5;
+      });
+      await resizeWindow(1600, 600);
+      await expect('A wide workspace switches back to columns', () => {
+        const [left, right] = geometry();
+        return innerWidth >= 1600 && aligned(left.top, right.top) && left.right < right.left;
+      });
+      await resizeWindow(1120, 710);
+      await expect('The normal workspace restores side by side terminals', () => {
+        const [left, right] = geometry();
+        return innerWidth === 1120 && aligned(left.top, right.top) && left.right < right.left;
+      });
       panes()[1].querySelector('.pane-body').dispatchEvent(
         new PointerEvent('pointerdown', {button: 0, bubbles: true})
       );
@@ -298,12 +357,19 @@ try {
         selected() === first && document.activeElement === focusedTerminal());
     }
     if (count === 3) {
-      await expect('Three panes put the first terminal above two equal panes', () => {
+      await expect('Three terminals use columns across the full workspace', () => {
+        const [a, b, c] = geometry();
+        return panes().length === 3 && aligned(a.top, b.top) && aligned(b.top, c.top) &&
+          aligned(a.width, b.width) && aligned(b.width, c.width) && a.right < b.left && b.right < c.left;
+      });
+      $('#inspector-toggle').click();
+      await expect('Opening the inspector reflows three panes into balanced rows', () => {
         const [top, left, right] = geometry();
         return panes().length === 3 && top.bottom < left.top && aligned(left.top, right.top) &&
           aligned(top.left, left.left) && aligned(top.right, right.right) && aligned(left.width, right.width);
       });
       await key(40, 'k', command);
+      await expect('The pane is ready for an agent draft', () => document.activeElement === $('#command-input'));
       await type('split draft');
       await expect('Agent draft stays inside its own pane', () =>
         panes()[2].contains($('#command-form')) && $('#command-input').value === 'split draft');
@@ -782,6 +848,8 @@ try {
     tab: selected()?.textContent, focus: document.activeElement.id || document.activeElement.className,
     surface: $('.terminal-page.selected')?.dataset, draft: $('#command-input').value,
     reason: $('.terminal-pane.active .exit-note')?.textContent,
+    projects: { open: $('#projects-dialog').open, search: $('#project-search').value,
+      list: $('#project-list').textContent, empty: $('#projects-empty').textContent, error: $('#projects-error').textContent },
     terminal: rows(activeTerminal()),
   }) + '\n' + err.stack;
 }

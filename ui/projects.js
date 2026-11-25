@@ -104,7 +104,7 @@ export class Projects {
       const button = element("button", "project-link");
       button.type = "button";
       button.dataset.path = entry.path;
-      button.title = "Open a new terminal in " + entry.path;
+      button.title = "Open terminal in " + entry.path;
       const copy = element("span", "project-copy");
       copy.append(element("strong", "", entry.name), element("small", "", entry.displayPath));
       const count = element("span", "project-visits", entry.visits + (entry.visits === 1 ? " visit" : " visits"));

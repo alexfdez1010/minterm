@@ -83,6 +83,8 @@ pub enum Action {
         path: PathBuf,
         cols: u16,
         rows: u16,
+        #[serde(default)]
+        reuse: bool,
     },
     Drag,
 }
@@ -102,6 +104,7 @@ pub enum Message {
         directory: Result<PathBuf, String>,
         cols: u16,
         rows: u16,
+        reuse: bool,
     },
 }
 
@@ -193,13 +196,16 @@ impl App {
                 path,
                 cols,
                 rows,
+                reuse,
             } => {
-                if !self.last_dirs.contains_key(&id) && self.opening_projects.insert(id) {
+                if (reuse || !self.last_dirs.contains_key(&id)) && self.opening_projects.insert(id)
+                {
                     let _ = self.projects.send(projects::Request::Open {
                         id,
                         path,
                         cols,
                         rows,
+                        reuse,
                     });
                 }
             }
@@ -393,8 +399,20 @@ impl App {
                 directory,
                 cols,
                 rows,
+                reuse,
             } => {
                 if self.opening_projects.remove(&id) {
+                    if reuse {
+                        match directory {
+                            Ok(directory) => self.emit("projectDirectory", json!({
+                                "id": id, "path": directory,
+                                "reusable": !self.sessions.is_busy(id) && !self.companions.contains_key(&id),
+                                "command": project_command(&directory),
+                            })),
+                            Err(error) => self.emit("projectDirectory", json!({"id": id, "error": error})),
+                        }
+                        return;
+                    }
                     match directory {
                         Ok(directory) => self.open_directory(id, directory, cols, rows),
                         Err(error) => self.emit("failed", json!({"id":id,"error":error})),
@@ -419,6 +437,22 @@ impl App {
             }
         }
     }
+}
+
+fn project_command(directory: &Path) -> String {
+    let path = directory.to_string_lossy();
+    if !path.chars().any(char::is_control) {
+        return format!("cd -- {}\r", shell_words::quote(&path));
+    }
+    // Encode control characters as well as shell metacharacters before PTY input.
+    let octal: String = directory
+        .as_os_str()
+        .as_encoded_bytes()
+        .iter()
+        .map(|byte| format!("\\{byte:03o}"))
+        .collect();
+    // The suffix preserves trailing newlines through command substitution.
+    format!("cd -- \"$(printf '{octal}/.')\"\r")
 }
 
 fn ui_preferences() -> Value {
@@ -448,4 +482,45 @@ fn short_path(path: &Path) -> String {
         return Path::new("~").join(rest).display().to_string();
     }
     path.display().to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::project_command;
+    use std::{fs, process::Command};
+
+    #[test]
+    fn project_navigation_keeps_paths_literal_in_bash_and_zsh() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        for name in [
+            "project ' $(touch wrong) `touch wrong` café",
+            "control\r\n\tproject\n",
+        ] {
+            let directory = root.join(name);
+            fs::create_dir(&directory).unwrap();
+            let input = project_command(&directory);
+            assert!(input.ends_with('\r'));
+            assert!(!input[..input.len() - 1].contains(['\r', '\n', '\t']));
+            for shell in ["/bin/bash", "/bin/zsh"] {
+                let output = Command::new(shell)
+                    .args([
+                        "-f",
+                        "-c",
+                        &format!("{} && /bin/pwd -P", input.trim_end_matches('\r')),
+                    ])
+                    .current_dir(&root)
+                    .env_clear()
+                    .env("PATH", "/usr/bin:/bin")
+                    .output()
+                    .unwrap();
+                assert!(output.status.success(), "{shell}: {:?}", output.stderr);
+                assert_eq!(
+                    output.stdout,
+                    format!("{}\n", directory.display()).as_bytes()
+                );
+                assert!(!root.join("wrong").exists());
+            }
+        }
+    }
 }

@@ -28,7 +28,7 @@ const currentTab = () => tabs.get(active);
 const visibleSession = (tab) => (tab?.mode === "agent" ? tab.companion : tab?.base);
 const current = () => visibleSession(currentTab());
 const commandMode = new CommandMode(currentTab, openInteractive, toggleCommand, notice);
-const projects = new Projects((path) => newTab(undefined, undefined, "terminal", path), focusSession);
+const projects = new Projects(openProject, focusSession);
 function focusSession() {
   if (currentTab()?.mode === "compose") $("command-input").focus();
   else current()?.term.focus();
@@ -131,16 +131,40 @@ function layoutPanes() {
   updatePanesToggle();
   if (!tiled) return;
 
-  // Use equal-height rows and distribute the space across the panes in each row.
-  const columns = count <= 4 ? 2 : Math.max(2, Math.min(4, Math.floor(terminals.offsetWidth / 270)));
-  const rows = Math.ceil(count / columns);
+  // Compare balanced rows using the terminal bodies, excluding pane chrome.
+  const style = getComputedStyle(terminals);
+  const gap = parseFloat(style.gap);
+  const width = terminals.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+  const height = terminals.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+  const sample = tabs.values().next().value;
+  const body = getComputedStyle(sample.body);
+  const insetX = 2 + parseFloat(body.marginLeft) + parseFloat(body.marginRight);
+  const insetY = 2 + sample.heading.offsetHeight + parseFloat(body.marginTop) + parseFloat(body.marginBottom);
+  const maxColumns = Math.max(1, Math.floor((width + gap) / (270 + gap)));
+  let rows = count, best = Infinity;
+  for (let candidate = 1; candidate <= count; candidate++) {
+    const small = Math.floor(count / candidate), extra = count % candidate;
+    if (Math.ceil(count / candidate) > maxColumns) continue;
+    const paneHeight = Math.max(144, (height - gap * (candidate - 1)) / candidate) - insetY;
+    const distortion = (columns) => {
+      const paneWidth = (width - gap * (columns - 1)) / columns - insetX;
+      return Math.log(Math.max(1, paneWidth) / Math.max(1, paneHeight)) ** 2;
+    };
+    const score = (candidate - extra) * small * distortion(small) +
+      (extra ? extra * (small + 1) * distortion(small + 1) : 0);
+    if (score < best) { best = score; rows = candidate; }
+  }
+  const small = Math.floor(count / rows);
+  const tracks = count % rows ? small * (small + 1) : small;
+  terminals.style.gridTemplateColumns = `repeat(${tracks}, minmax(0, 1fr))`;
+  terminals.style.gridTemplateRows = `repeat(${rows}, minmax(144px, 1fr))`;
   const ordered = [...tabs.values()];
   for (let row = 0; row < rows; row++) {
     const start = Math.floor(row * count / rows);
     const end = Math.floor((row + 1) * count / rows);
     for (let index = start; index < end; index++) {
       const { pane, shortcut, heading } = ordered[index];
-      pane.style.gridColumn = "span " + 12 / (end - start);
+      pane.style.gridColumn = "span " + tracks / (end - start);
       const number = index + 1;
       shortcut.textContent = number <= 9 ? "⌘" + number : "";
       if (number <= 9) heading.setAttribute("aria-keyshortcuts", "Meta+" + number);
@@ -242,9 +266,11 @@ function createSession(id, tabId, body, kind, source) {
     cwdKnown: false,
     state: "opening",
     pending: [],
+    hasInput: false,
   };
   sessions.set(id, session);
   term.onData((data) => {
+    session.hasInput = true;
     // Cursor reports and arrow navigation do not answer an approval prompt.
     if (/[\r\n\x03\x04]/.test(data) || /^(?:y|n|\x1b)$/i.test(data)) activity.input(id);
     if (session.state === "opening") {
@@ -256,6 +282,7 @@ function createSession(id, tabId, body, kind, source) {
     if (data.includes("\r")) scheduleContext();
   });
   term.onBinary((data) => {
+    session.hasInput = true;
     if (session.state === "live") send("binary", { id, data: btoa(data) });
   });
   term.onResize(({ cols, rows }) => {
@@ -343,6 +370,19 @@ function newTab(task, from = current()?.id, mode = commandMode.newTabMode, proje
   if (task || mode === "agent")
     openInteractive(tab, task?.agent || commandMode.agent, task?.prompt || "");
   return tab;
+}
+function canReuseForProject(tab) {
+  return tab?.mode === "shell" && tab.base.state === "live" &&
+    !tab.base.hasInput && !tab.base.lastCommand && !tab.companion && !tab.draft;
+}
+function openProject(path) {
+  const tab = currentTab();
+  if (!canReuseForProject(tab) || tab.base.openingProject) {
+    newTab(undefined, undefined, "terminal", path);
+    return;
+  }
+  tab.base.openingProject = true;
+  send("openProject", { id: tab.id, path, cols: tab.base.term.cols, rows: tab.base.term.rows, reuse: true });
 }
 function dispatchInteractive(tab) {
   const session = tab.companion;
@@ -599,6 +639,17 @@ window.minterm = {
         break;
       case "projects":
         projects.receive(data);
+        break;
+      case "projectDirectory":
+        if (session) {
+          session.openingProject = false;
+          if (data.error) notice(data.error);
+          else if (data.reusable && canReuseForProject(tab)) {
+            session.hasInput = true;
+            send("write", { id: session.id, data: data.command });
+            scheduleContext();
+          } else newTab(undefined, undefined, "terminal", data.path);
+        }
         break;
       case "listenerStopped":
         listenerStopped();

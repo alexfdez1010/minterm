@@ -27,6 +27,7 @@ pub enum Request {
         path: PathBuf,
         cols: u16,
         rows: u16,
+        reuse: bool,
     },
 }
 
@@ -70,6 +71,7 @@ pub fn start(proxy: EventLoopProxy<Message>) -> Sender<Request> {
                     path,
                     cols,
                     rows,
+                    reuse,
                 }) => {
                     let directory = history.resolve(&path, now());
                     let _ = proxy.send_event(Message::ProjectDirectory {
@@ -77,6 +79,7 @@ pub fn start(proxy: EventLoopProxy<Message>) -> Sender<Request> {
                         directory,
                         cols,
                         rows,
+                        reuse,
                     });
                 }
                 _ => {}

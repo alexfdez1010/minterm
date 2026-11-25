@@ -2,7 +2,7 @@
 
 ## The terminal workspace
 
-Use **Split View** in the title bar or **View → Toggle Split View** to see your open terminals together. The default shortcut is **⌘L**. Two tabs sit side by side, three put the first terminal across the top, and four make a two-by-two grid. With more tabs, Minterm adds rows and scrolls to the selected pane. Click a pane or press **⌘1** through **⌘9** to move keyboard focus. The active pane has a mint outline. Switching views keeps your shells and agents running.
+Use **Split View** in the title bar or **View → Toggle Split View** to see your open terminals together. The default shortcut is **⌘L**. Minterm chooses rows and columns from the available width and height to keep terminal panes as square as possible, and adjusts them when you resize the window or toggle the inspector. Panes keep a minimum usable size; with more tabs, the workspace scrolls to the selected pane. Click a pane or press **⌘1** through **⌘9** to move keyboard focus. The active pane has a mint outline. Switching views keeps your shells and agents running.
 
 In **Settings → General**, click the shortcut beside **Toggle Split View** and press a Command key combination with a letter. Escape cancels recording. If you already assigned **⌘L** to **Switch mode** before this update, your binding stays in place and Split View starts with **⇧⌘L**.
 
@@ -18,7 +18,7 @@ Minterm disables macOS inline text predictions in terminal and task fields so su
 
 ### Projects
 
-Click **Projects** or press **⌘⇧P** to open a new terminal in a frequently visited folder. Search by name or path, then press Return or select a row. Projects are ranked by visits during the last seven days, with recent visits breaking ties. Subfolders of a Git repository count toward its root, including Git worktrees; other folders count individually. Home and filesystem root are excluded.
+Click **Projects** or press **⌘⇧P** to open a terminal in a frequently visited folder. Search by name or path, then press Return or select a row. An untouched shell changes directory in the current tab. If you have entered input, drafted a task or opened an agent, the project opens in a new tab. Projects are ranked by visits during the last seven days, with recent visits breaking ties. Subfolders of a Git repository count toward its root, including Git worktrees; other folders count individually. Home and filesystem root are excluded.
 
 Use a row’s remove button, or focus the project with the arrow keys and press **⌘W**, to remove it from history. Its folder and open terminals stay intact. A new visit adds the project again. **Escape** closes Projects; **⌘W** also closes it when the search field is focused.
 
