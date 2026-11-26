@@ -8,6 +8,7 @@ mod menu;
 mod preferences;
 mod projects;
 mod prompt;
+mod prompt_history;
 mod sessions;
 mod settings;
 mod updater;

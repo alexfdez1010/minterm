@@ -313,4 +313,18 @@ int main(void) {
         fs::read_to_string(command_dir.join("shell-restored")).unwrap(),
         "restored\n"
     );
+    assert_eq!(
+        fs::read_to_string(home.join("shell-shortcuts/blank-cwd"))
+            .unwrap()
+            .trim_end(),
+        home.join("shell-shortcuts").to_str().unwrap()
+    );
+    assert_eq!(
+        fs::read(home.join("shell-shortcuts/low-argv")).unwrap(),
+        b"-m\0gpt-6.2-sol\0-c\0model_reasoning_effort=\"low\"\0"
+    );
+    assert_eq!(
+        fs::read(home.join("shell-shortcuts/codex-argv")).unwrap(),
+        b"--\0recalled-history-prompt\0"
+    );
 }

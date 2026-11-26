@@ -1,5 +1,5 @@
 use crate::{
-    agents, inspect, projects,
+    agents, inspect, projects, prompt_history,
     sessions::{SessionEvent, Sessions},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
@@ -78,6 +78,11 @@ pub enum Action {
     RemoveProject {
         path: PathBuf,
     },
+    RecordPrompt {
+        entry: String,
+        #[serde(default)]
+        seq: u64,
+    },
     OpenProject {
         id: u32,
         path: PathBuf,
@@ -103,6 +108,7 @@ pub enum Message {
     ListenerStopped(Option<String>),
     Agents(Value),
     Projects(Value),
+    PromptHistory(Value),
     ProjectDirectory {
         id: u32,
         directory: Result<PathBuf, String>,
@@ -122,6 +128,7 @@ pub struct App {
     proxy: EventLoopProxy<Message>,
     sessions: Sessions,
     projects: Sender<projects::Request>,
+    prompt_history: Sender<prompt_history::Request>,
     opening_projects: HashSet<u32>,
     // Each logical tab can own a shell and a second PTY running a live agent.
     companions: HashMap<u32, Companion>,
@@ -142,6 +149,7 @@ impl App {
         });
         Self {
             projects: projects::start(proxy.clone()),
+            prompt_history: prompt_history::start(proxy.clone()),
             opening_projects: HashSet::new(),
             view,
             proxy,
@@ -195,13 +203,16 @@ impl App {
     pub fn act(&mut self, action: Action) {
         match action {
             Action::AgentPreferences => self.emit("preferences", ui_preferences()),
-            Action::Ready => self.emit(
-                "ready",
-                json!({
-                    "path":short_path(&self.start_dir),
-                    "preferences":ui_preferences()
-                }),
-            ),
+            Action::Ready => {
+                self.emit(
+                    "ready",
+                    json!({
+                        "path":short_path(&self.start_dir),
+                        "preferences":ui_preferences()
+                    }),
+                );
+                let _ = self.prompt_history.send(prompt_history::Request::Load);
+            }
             Action::Open {
                 id,
                 from,
@@ -213,6 +224,11 @@ impl App {
             }
             Action::RemoveProject { path } => {
                 let _ = self.projects.send(projects::Request::Remove(path));
+            }
+            Action::RecordPrompt { entry, seq } => {
+                let _ = self
+                    .prompt_history
+                    .send(prompt_history::Request::Record { entry, seq });
             }
             Action::OpenProject {
                 id,
@@ -421,6 +437,7 @@ impl App {
             }
             Message::Menu(name) => self.emit("menu", json!(name)),
             Message::Projects(value) => self.emit("projects", value),
+            Message::PromptHistory(value) => self.emit("promptHistory", value),
             Message::ProjectDirectory {
                 id,
                 directory,

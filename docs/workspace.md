@@ -36,11 +36,11 @@ The process name and PID come from the listener. A label such as Vite describes 
 
 Install the agent CLI and complete its sign-in or local model setup. Then choose a default in **Settings → Commands**. In **Settings → General**, change the **Switch mode** shortcut or choose which mode opens with **⌘T**. On upgrade from the original mode shortcut, the previous default **⇧⌘K** becomes **⌘K**.
 
-Press **⌘K** to open the robot prompt from a shell. Enter a task for the default agent, or start with a saved command name, such as `sol-light Review the current diff`. Shift-Return inserts a newline. Press Return at an empty prompt to launch without an initial task. The agent starts in the shell’s current directory. Press **⌘K** again to move between the shell and the running agent.
+Press **⌘K** to open the robot prompt from a shell. Enter a task for the default agent, or start with a saved command name, such as `sol-light Review the current diff`. Shift-Return inserts a newline. Press **Up Arrow** and **Down Arrow** at the robot prompt to recall earlier prompts and commands; history is saved in `~/Library/Application Support/minterm/prompt-history.json` (or `$XDG_STATE_HOME/minterm/prompt-history.json`). Press Return at an empty prompt to launch without an initial task. The agent starts in the shell’s current directory. Press **⌘K** again to move between the shell and the running agent.
 
 ### Command presets
 
-| Starter command | Launches | Shortcut at the robot prompt |
+| Starter command | Launches | Shortcut |
 | --- | --- | --- |
 | `codex`, `claude`, `opencode` | The corresponding interactive CLI | |
 | `antigravity` | Antigravity CLI (`agy`) | ⌃A |
@@ -50,7 +50,7 @@ Press **⌘K** to open the robot prompt from a shell. Enter a task for the defau
 
 Double-click a command in **Settings → Commands** to edit it. Click the shortcut recorder, or Tab to it from **Shell command** and press Space. Press Control and a letter together and choose **Save**. To remove a binding, click × or press Delete with the recorder focused, then save. Escape cancels recording.
 
-With the robot prompt focused, press a profile’s shortcut to launch it with your draft. Existing bindings such as `Enter+L` also work with Control-L. You can still hold Return and press L for that binding. Running agent CLIs use their own keyboard controls.
+Press a profile’s Control shortcut from a shell to launch that profile directly without opening the robot prompt first, or press it from the robot prompt to launch with your draft. If the current tab already has a different running agent, launching from its shell opens the requested profile in a new tab. Existing bindings such as `Enter+L` also work with Control-L; you can still hold Return and press L at the robot prompt. Running agent CLIs use their own keyboard controls.
 
 The `ocq` preset calls `ocq --` so that `ollama launch` forwards the task to OpenCode. To change the model, edit your alias or set the profile’s shell command to `ollama launch opencode --model MODEL --`, replacing `MODEL` with its installed name. If your alias starts OpenCode directly, use `ocq` as the shell command.
 

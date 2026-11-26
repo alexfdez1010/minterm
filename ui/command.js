@@ -35,10 +35,24 @@ function promptAnchor(term) {
   return fallback || { col: buffer.cursorX, row: cursorRow, lastRow };
 }
 
+const MAX_HISTORY_ENTRIES = 500;
+const MAX_PROMPT_LENGTH = 4000;
+
+function controlShortcut(event) {
+  if (!event.ctrlKey || event.shiftKey || event.metaKey || event.altKey) return null;
+  // Some keyboard layouts deliver the ASCII control character to WebKit.
+  let letter = event.key.toUpperCase();
+  if (/^Key[A-Z]$/.test(event.code) && /^[\x01-\x1a]$/.test(event.key)) {
+    letter = String.fromCharCode(64 + event.key.charCodeAt(0));
+  }
+  return /^[A-Z]$/.test(letter) ? "Ctrl+" + letter : null;
+}
+
 export class CommandMode {
-  constructor(currentTab, openAgent, toggle, notice) {
+  constructor(currentTab, openAgent, launchFromShell, toggle, notice) {
     this.currentTab = currentTab;
     this.openAgent = openAgent;
+    this.launchFromShell = launchFromShell;
     this.notice = notice;
     this.profiles = new Set();
     this.bindings = new Map();
@@ -46,6 +60,12 @@ export class CommandMode {
     this.shortcut = "";
     this.newTabMode = "terminal";
     this.listeners = [];
+    this.history = [];
+    this.historyIndex = -1;
+    this.historyDraft = "";
+    this.historySeq = 0;
+    this.pendingHistory = [];
+    this.deferredHistory = null;
     const field = $("command-input");
     $("terminals").addEventListener("click", (event) => {
       const session = this.session;
@@ -56,6 +76,7 @@ export class CommandMode {
     field.oninput = () => {
       const tab = currentTab();
       if (tab?.mode !== "compose") return;
+      this.resetHistoryNavigation();
       tab.draft = field.value;
       const buffer = tab.base.term.buffer.active;
       if (buffer.viewportY !== buffer.baseY) tab.base.term.scrollToBottom();
@@ -83,15 +104,36 @@ export class CommandMode {
     field.addEventListener("compositionstart", cancelChord);
     window.addEventListener("blur", () => {
       cancelChord();
+      this.queuedLaunch = null;
       held.clear();
     });
     document.addEventListener("keydown", (event) => {
-      if (!held.has(physicalKey(event))) return;
-      if (event.repeat) {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-      } else {
+      if (held.has(physicalKey(event))) {
+        if (event.repeat) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          return;
+        }
         held.delete(physicalKey(event));
+      }
+      if (event.isComposing || event.keyCode === 229) return;
+      if (document.querySelector("dialog[open]")) return;
+      const tab = currentTab();
+      if (tab?.mode !== "shell") return;
+      if (
+        event.target instanceof Element &&
+        event.target.closest("#sidebar, input, textarea, select") &&
+        !tab.base.page.contains(event.target)
+      ) {
+        return;
+      }
+      const shortcut = controlShortcut(event);
+      if (!shortcut || !this.bindings.has(shortcut)) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (!event.repeat) {
+        held.add(physicalKey(event));
+        this.launchShortcut(shortcut);
       }
     }, true);
     document.addEventListener("keyup", (event) => {
@@ -124,18 +166,20 @@ export class CommandMode {
       }
       if (event.ctrlKey) {
         cancelChord();
-        // Some keyboard layouts deliver the ASCII control character to WebKit.
-        let letter = event.key.toUpperCase();
-        if (/^Key[A-Z]$/.test(event.code) && /^[\x01-\x1a]$/.test(event.key)) {
-          letter = String.fromCharCode(64 + event.key.charCodeAt(0));
-        }
-        const shortcut = "Ctrl+" + letter;
-        if (this.bindings.has(shortcut)) {
+        const shortcut = controlShortcut(event);
+        if (shortcut && this.bindings.has(shortcut)) {
           event.preventDefault();
           if (!event.repeat) {
             held.add(physicalKey(event));
             this.submit(shortcut);
           }
+        }
+        return;
+      }
+      if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+        cancelChord();
+        if (this.navigateHistory(field, event.key === "ArrowUp" ? -1 : 1)) {
+          event.preventDefault();
         }
         return;
       }
@@ -163,6 +207,91 @@ export class CommandMode {
     };
   }
 
+  resetHistoryNavigation() {
+    this.historyIndex = -1;
+    this.historyDraft = "";
+    if (this.deferredHistory) {
+      this.history = this.deferredHistory;
+      this.deferredHistory = null;
+    }
+  }
+
+  applyHistoryEntry(tab, field, value, direction) {
+    field.value = value;
+    tab.draft = value;
+    const firstBreak = value.indexOf("\n");
+    const pos = direction === "up" && firstBreak !== -1 ? firstBreak : value.length;
+    field.setSelectionRange(pos, pos);
+    const buffer = tab.base.term.buffer.active;
+    if (buffer.viewportY !== buffer.baseY) tab.base.term.scrollToBottom();
+    this.layout();
+  }
+
+  navigateHistory(field, direction) {
+    const tab = this.currentTab();
+    if (tab?.mode !== "compose" || !this.history.length) return false;
+    if (field.selectionStart !== field.selectionEnd) return false;
+    const caret = field.selectionStart;
+    if (direction < 0) {
+      if (field.value.slice(0, caret).includes("\n")) return false;
+      if (this.historyIndex === -1) {
+        this.historyDraft = field.value;
+        this.historyIndex = this.history.length - 1;
+      } else if (this.historyIndex > 0) {
+        this.historyIndex--;
+      } else {
+        return true;
+      }
+      this.applyHistoryEntry(tab, field, this.history[this.historyIndex], "up");
+      return true;
+    }
+    if (this.historyIndex === -1) return false;
+    if (field.value.slice(caret).includes("\n")) return false;
+    if (this.historyIndex < this.history.length - 1) {
+      this.historyIndex++;
+      this.applyHistoryEntry(tab, field, this.history[this.historyIndex], "down");
+    } else {
+      const draft = this.historyDraft;
+      this.resetHistoryNavigation();
+      this.applyHistoryEntry(tab, field, draft, "down");
+    }
+    return true;
+  }
+
+  recordHistory(entry) {
+    if (typeof entry !== "string" || !entry.trim()) return;
+    const text = entry.slice(0, MAX_PROMPT_LENGTH);
+    this.history = this.history.filter((item) => item !== text);
+    this.history.push(text);
+    if (this.history.length > MAX_HISTORY_ENTRIES) {
+      this.history.splice(0, this.history.length - MAX_HISTORY_ENTRIES);
+    }
+    this.pendingHistory = this.pendingHistory.filter((item) => item !== text);
+    this.pendingHistory.push(text);
+    this.historySeq++;
+    send("recordPrompt", { entry: text, seq: this.historySeq });
+  }
+
+  receiveHistory(data) {
+    const entries = Array.isArray(data?.entries) ? data.entries : [];
+    const merged = entries.filter((item) => typeof item === "string" && item.trim());
+    const seq = Number(data?.seq || 0);
+    if (seq >= this.historySeq) {
+      this.pendingHistory = [];
+    } else {
+      for (const item of this.pendingHistory) {
+        const idx = merged.indexOf(item);
+        if (idx !== -1) merged.splice(idx, 1);
+        merged.push(item);
+      }
+    }
+    if (merged.length > MAX_HISTORY_ENTRIES) {
+      merged.splice(0, merged.length - MAX_HISTORY_ENTRIES);
+    }
+    if (this.historyIndex === -1) this.history = merged;
+    else this.deferredHistory = merged;
+  }
+
   canLaunch(agent) {
     if (!this.error && this.profiles.has(agent)) return true;
     this.notice(this.error || "Agent command unavailable. Check Settings.");
@@ -181,11 +310,30 @@ export class CommandMode {
     return this.refreshing;
   }
 
+  async launchShortcut(shortcut) {
+    const tab = this.currentTab();
+    if (tab?.mode !== "shell" || !["opening", "live"].includes(tab.base.state)) return;
+    if (this.refreshing) {
+      const queued = { tab, shortcut };
+      this.queuedLaunch = queued;
+      await this.refreshing;
+      if (this.queuedLaunch !== queued || this.currentTab() !== tab || tab.mode !== "shell") return;
+      this.queuedLaunch = null;
+    }
+    const agent = this.bindings.get(shortcut);
+    if (!agent) {
+      this.notice(this.error || "No agent command uses " + shortcut + ".");
+      return;
+    }
+    this.launchFromShell(tab, agent);
+  }
+
   async submit(shortcut) {
     const tab = this.currentTab();
     if (tab?.mode !== "compose") return;
     const field = $("command-input");
-    let prompt = field.value;
+    const rawPrompt = field.value;
+    let prompt = rawPrompt;
     if (this.refreshing) {
       const queued = { tab, prompt };
       this.queuedSubmit = queued;
@@ -207,7 +355,11 @@ export class CommandMode {
         prompt = prompt.slice(prefix[0].length);
       }
     }
-    if (this.openAgent(tab, agent, prompt.trim() ? prompt : "")) tab.draft = "";
+    if (this.openAgent(tab, agent, prompt.trim() ? prompt : "")) {
+      this.resetHistoryNavigation();
+      if (rawPrompt.trim()) this.recordHistory(rawPrompt);
+      tab.draft = "";
+    }
   }
 
   preferences(value) {
@@ -215,7 +367,7 @@ export class CommandMode {
     this.profiles.clear();
     this.bindings.clear();
     this.hasReturnShortcuts = false;
-    const accessibleShortcuts = ["Enter", "Shift+Enter", "Escape"];
+    const accessibleShortcuts = ["Enter", "Shift+Enter", "Escape", "ArrowUp", "ArrowDown"];
     for (const { name, shortcut } of value.agentCommands || []) {
       this.profiles.add(name);
       if (!shortcut) continue;
@@ -246,6 +398,7 @@ export class CommandMode {
     this.session?.page.classList.remove("composing");
     (session?.page || $("terminals")).append($("command-form"));
     this.enterTab = null;
+    this.resetHistoryNavigation();
     this.session = session;
     this.shift = 0;
     cancelAnimationFrame(this.frame);

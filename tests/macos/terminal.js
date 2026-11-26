@@ -84,6 +84,13 @@ try {
     await expect('Project history survives an app restart', () =>
       [...document.querySelectorAll('#project-list button')].some(button => button.dataset.path.endsWith('/command-target')));
     await key(53, '\x1b');
+    await key(40, 'k', command);
+    await expect('Robot prompt opens to verify persisted prompt history', () => document.activeElement === $('#command-input'));
+    await key(126, '\uf700');
+    await expect('Prompt history survives an app restart', () => $('#command-input').value === 'recalled-history-prompt');
+    await key(53, '\x1b');
+    await expect('Escape returns focus to the shell after checking prompt history', () =>
+      $('#command-form').hidden && document.activeElement === focusedTerminal());
     await expect('The previous view is restored with one terminal', () => panes().length === 1 &&
       $('#panes-toggle').getAttribute('aria-pressed') === String(restoredSplit));
     await key(17, 't', command);
@@ -833,6 +840,99 @@ try {
     await enter('/exit');
     await expect('Antigravity exits cleanly', () => surface().dataset.state === 'ended');
   }
+  // Verify agent shortcuts directly from normal shell mode and robot prompt history navigation.
+  await key(40, 'k', command);
+  await expect('Shell returns before shell-mode shortcut checks', () => surface()?.dataset.kind === 'shell');
+  await enter('mkdir -p "$HOME/shell-shortcuts" && cd "$HOME/shell-shortcuts" && echo shell-shortcut-ready');
+  await expect('Shell moved to isolated directory for shell-mode shortcut tests', () =>
+    rows(external).includes('shell-shortcut-ready'));
+  const shortcutTab = selected(), tabsBeforeShortcut = tabs().length;
+  await controlLetter(0, 'a', 'down');
+  await expect('Ctrl+A launches Antigravity directly from normal shell mode', () =>
+    tabs().length === tabsBeforeShortcut && selected() === shortcutTab &&
+    surface()?.dataset.kind === 'agent' && surface().dataset.state === 'live');
+  const directAgy = activeTerminal();
+  await expect('Direct Antigravity session starts interactively without a task', () =>
+    rows(directAgy).includes('Started agy without a task'));
+  // Release Control first and keep holding A while focus is in the newly launched PTY.
+  await keyPhase('repeat', 0, 'a');
+  await keyPhase('up', 0, 'a');
+  await enter('direct follow up');
+  await expect('Direct shell shortcut does not leak launch keys into Antigravity', () =>
+    rows(directAgy).includes('Fixture reply: direct follow up'));
+  // Return to shell while Antigravity is still live: same shortcut refocuses it,
+  // while another profile's shortcut opens a new tab without disturbing Antigravity.
+  await key(40, 'k', command);
+  await expect('Shell is visible while Antigravity stays alive', () => surface()?.dataset.kind === 'shell');
+  await controlLetter(0, 'a');
+  await expect('Ctrl+A from shell returns to the existing live Antigravity session', () =>
+    tabs().length === tabsBeforeShortcut && selected() === shortcutTab &&
+    surface()?.dataset.kind === 'agent' && activeTerminal() === directAgy);
+  await key(40, 'k', command);
+  await expect('Shell returns before launching a second profile via shortcut', () => surface()?.dataset.kind === 'shell');
+  await controlLetter(37, 'l');
+  await expect('Ctrl+L from shell with a different live agent opens a new tab for sol-light', () =>
+    tabs().length === tabsBeforeShortcut + 1 && selected() !== shortcutTab &&
+    surface()?.dataset.kind === 'agent' && surface().dataset.state === 'live');
+  const directLight = activeTerminal();
+  await expect('Direct sol-light launch uses its configured model', () =>
+    rows(directLight).includes('Model: gpt-6.2-sol'));
+  await enter('/exit');
+  await expect('Direct sol-light session exits', () => surface().dataset.state === 'ended');
+  await key(13, 'w', command);
+  await expect('Closing direct sol-light tab returns to the Antigravity tab', () =>
+    tabs().length === tabsBeforeShortcut && selected() === shortcutTab);
+  await key(40, 'k', command);
+  await expect('Original Antigravity session stayed live', () =>
+    surface()?.dataset.kind === 'agent' && activeTerminal() === directAgy);
+  await enter('/exit');
+  await expect('Direct Antigravity session exits', () => surface().dataset.state === 'ended');
+  await key(40, 'k', command);
+  await expect('Shell returns before prompt history checks', () => surface()?.dataset.kind === 'shell');
+  await key(40, 'k', command);
+  await expect('Robot prompt opens for history navigation', () => document.activeElement === $('#command-input'));
+  await type('wip draft');
+  await key(126, '\uf700');
+  await expect('Up Arrow recalls the latest submitted prompt (multiline)', () =>
+    $('#command-input').value === '--help review\nKeep $(touch agy-command-ran) literal.');
+  await key(126, '\uf700');
+  await expect('Second Up Arrow moves past a multiline entry to the previous prompt', () =>
+    $('#command-input').value === 'antigravity --help review\nKeep $(touch agy-command-ran) literal.');
+  await key(126, '\uf700');
+  await expect('Third Up Arrow reaches the bare profile prompt before it', () =>
+    $('#command-input').value === 'antigravity');
+  await key(126, '\uf700');
+  await expect('Fourth Up Arrow recalls the earlier external profile prompt', () =>
+    $('#command-input').value === 'review external edit');
+  await key(125, '\uf701');
+  await expect('Down Arrow steps forward to the bare profile prompt', () =>
+    $('#command-input').value === 'antigravity');
+  await key(125, '\uf701');
+  await expect('Down Arrow steps forward to the named multiline prompt', () =>
+    $('#command-input').value === 'antigravity --help review\nKeep $(touch agy-command-ran) literal.');
+  await key(125, '\uf701');
+  await expect('Down Arrow steps forward to the latest multiline prompt', () =>
+    $('#command-input').value === '--help review\nKeep $(touch agy-command-ran) literal.');
+  await key(125, '\uf701');
+  await expect('Down Arrow at the newest entry restores the unsent draft', () =>
+    $('#command-input').value === 'wip draft');
+  $('#command-input').value = 'recalled-history-prompt';
+  $('#command-input').dispatchEvent(new Event('input', {bubbles: true}));
+  await key(36, '\r');
+  await expect('Submitting a new prompt starts the agent and records it in history', () =>
+    surface()?.dataset.kind === 'agent' && surface().dataset.state === 'live');
+  await enter('/exit');
+  await expect('Prompt history test agent exits', () => surface().dataset.state === 'ended');
+  await key(40, 'k', command);
+  await expect('Shell returns after prompt history test agent', () => surface()?.dataset.kind === 'shell');
+  await key(40, 'k', command);
+  await expect('Robot prompt reopens to verify the newly recorded prompt', () => document.activeElement === $('#command-input'));
+  await key(126, '\uf700');
+  await expect('Up Arrow immediately recalls the newly submitted prompt', () =>
+    $('#command-input').value === 'recalled-history-prompt');
+  await key(53, '\x1b');
+  await expect('Escape exits robot prompt after history check', () =>
+    $('#command-form').hidden && document.activeElement === focusedTerminal());
   if ($('#panes-toggle').getAttribute('aria-pressed') === 'false') $('#panes-toggle').click();
   await expect('Split View is active before restarting', () => panes().length > 1);
   await window.webkit.messageHandlers.testKey.postMessage({closeWindow: true});

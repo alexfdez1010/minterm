@@ -27,7 +27,13 @@ let contextTimer, noticeTimer, confirmation, previousPanel, savedInspector;
 const currentTab = () => tabs.get(active);
 const visibleSession = (tab) => (tab?.mode === "agent" ? tab.companion : tab?.base);
 const current = () => visibleSession(currentTab());
-const commandMode = new CommandMode(currentTab, openInteractive, toggleCommand, notice);
+const commandMode = new CommandMode(
+  currentTab,
+  openInteractive,
+  launchAgentFromShell,
+  toggleCommand,
+  notice,
+);
 const projects = new Projects(openProject, focusSession);
 function focusSession() {
   if (currentTab()?.mode === "compose") $("command-input").focus();
@@ -398,6 +404,15 @@ function dispatchInteractive(tab) {
     rows: session.term.rows,
   });
 }
+function launchAgentFromShell(tab, agent) {
+  if (inspectorOverlays.matches && panel) setPanel(null, false);
+  if (tab.companion && ["opening", "live"].includes(tab.companion.state)) {
+    if (tab.companion.agent === agent) setMode(tab, "agent");
+    else newTab({ agent, prompt: "" }, tab.base.id);
+    return;
+  }
+  openInteractive(tab, agent, "");
+}
 function openInteractive(tab, agent, prompt) {
   if (tab.companion && ["opening", "live"].includes(tab.companion.state)) {
     setMode(tab, "agent");
@@ -640,6 +655,9 @@ window.minterm = {
       case "projects":
         projects.receive(data);
         break;
+      case "promptHistory":
+        commandMode.receiveHistory(data);
+        break;
       case "projectDirectory":
         if (session) {
           session.openingProject = false;
@@ -732,7 +750,7 @@ initInspector(
   },
   (task) => {
     if (inspectorOverlays.matches) setPanel(null, false);
-    newTab(task);
+    if (newTab(task) && task?.prompt?.trim()) commandMode.recordHistory(task.prompt);
   },
   () => commandMode.agent,
   () => commandMode.refresh(),

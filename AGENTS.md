@@ -26,7 +26,7 @@ For local development, `./macos/bundle.sh` builds the signed app in `dist/Minter
 | Local agent activity and launch dialog | `ui/activity.js`, `ui/agents.js` |
 | Agent profiles, preferences and native Settings | `config/agents.toml`, `src/agent_config.rs`, `src/preferences.rs`, `macos/preferences.m`, `macos/agent_commands.m` |
 | Startup updates and bundle replacement | `src/updater.rs`, `ui/update.html`, `ui/update.js`, `ui/update.css` |
-| Tabs, agent mode and inspector | `ui/app.js`, `ui/command.js`, `ui/inspector.js`, `ui/app.css` |
+| Tabs, agent mode, prompt history and inspector | `ui/app.js`, `ui/command.js`, `ui/inspector.js`, `ui/app.css`, `src/prompt_history.rs` |
 
 Use [DESIGN.md](DESIGN.md) and the tokens in `ui/tokens.css` when extending the workspace.
 
@@ -41,4 +41,4 @@ The project skill [minterm-macos](.agents/skills/minterm-macos/SKILL.md) covers 
 - Keep service discovery read-only and bounded. Introduce new agent recognition with executable or package-entrypoint fixtures. Only process metadata needed by the UI crosses the bridge.
 - Preserve the upstream JS and licenses in `ui/vendor/`. Make application changes in the adjacent source modules. Check the bundled app if a change affects paths, signing or macOS startup.
 
-Build and test commands are in [README.md](README.md#development). Update the keyboard table when changing a shortcut.
+Build and test commands are in [README.md](README.md#development). Update the keyboard table when changing a shortcut. After verifying changes, commit and push them to `main` so GitHub Actions publishes the updated release.

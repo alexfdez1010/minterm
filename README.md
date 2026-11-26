@@ -67,8 +67,9 @@ Install and set up the CLI you want to use. To pick your default, open **Setting
 | ⌘⇧A | Open the running agents list |
 | ⌘I | Show or hide the local inspector |
 | ⌘⇧Return | Focus the terminal or restore its panels |
-| ⌃L / ⌃U | Launch the light or ultra Codex profile from the robot prompt |
-| ⌃A | Launch Antigravity from the robot prompt |
+| ⌃L / ⌃U | Launch the light or ultra Codex profile from a shell or the robot prompt |
+| ⌃A | Launch Antigravity from a shell or the robot prompt |
+| ↑ / ↓ | Browse previous prompts at the robot prompt |
 | ⌘W | Close the current tab or Settings; in Projects, remove the focused project from history. Press again to confirm closing a busy tab. |
 | ⌘+ / ⌘− / ⌘0 | Increase, decrease or reset the terminal text size |
 | ⌘, | Open Settings |
